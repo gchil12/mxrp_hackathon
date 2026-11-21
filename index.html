@@ -1,0 +1,2381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MXRP Kaoss Pad Synthesizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #030712;
+            color: #f3f4f6;
+            overflow-x: hidden;
+            touch-action: none;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0b0f19;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1f2937;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #374151;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-3 sm:p-6">
+
+    <!-- Top Header & Status -->
+    <header class="w-full max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between pb-4 border-b border-slate-800/80 gap-3">
+        <div class="flex items-center space-x-3">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+                <span class="mono font-bold text-white text-sm tracking-tighter">MX</span>
+            </div>
+            <div>
+                <h1 class="font-bold text-base sm:text-lg tracking-tight text-white flex items-center gap-2">
+                    MXRP <span class="text-xs font-normal text-cyan-400 mono px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-800/50">Companion Engine v8</span>
+                </h1>
+                <p class="text-xs text-slate-400">Additive Tonal Intelligence &amp; Call-and-Response Voice</p>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-center gap-2.5">
+            <button id="link-robot-btn" type="button" class="px-3.5 py-2 rounded-xl border border-indigo-500/40 bg-indigo-950/60 text-indigo-300 font-semibold text-xs tracking-wide hover:bg-indigo-900/60 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5">
+                <span id="sb-status-dot" class="w-2 h-2 rounded-full bg-amber-400"></span>
+                <span id="link-robot-btn-text">Link Robot (QR)</span>
+            </button>
+            <button id="mic-toggle-btn" type="button" class="px-4 py-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 font-semibold text-xs tracking-wide hover:bg-slate-800 active:scale-95 transition-all cursor-pointer flex items-center gap-2">
+                <span id="mic-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+                <span id="mic-btn-text">Mic Input: OFF</span>
+            </button>
+            <button id="toggle-face-btn" type="button" class="px-3.5 py-2 rounded-xl border border-cyan-500/40 bg-cyan-950/60 text-cyan-300 font-semibold text-xs tracking-wide hover:bg-cyan-900/60 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5">
+                <span id="face-btn-icon">👁️</span>
+                <span id="face-btn-text">Face: SHOWN</span>
+            </button>
+            <button id="start-audio-btn" type="button" class="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold text-xs tracking-wide shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 active:scale-95 transition-all cursor-pointer">
+                Initialize Audio
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="w-full max-w-6xl mx-auto flex flex-col gap-6 my-4 flex-1">
+
+        <!-- Top Stage: ~60% Kaoss Pad (Left) & ~40% G's Face (Right) [Expands to 100% when face is hidden] -->
+        <div class="flex flex-col md:flex-row gap-6 items-stretch transition-all duration-300">
+
+            <!-- Left ~60%: Kaoss Pad Container -->
+            <section id="kaoss-section" class="w-full md:w-3/5 flex flex-col transition-all duration-300">
+                <div class="relative w-full h-[340px] sm:h-[390px] bg-slate-950 border border-slate-800/80 rounded-3xl overflow-hidden shadow-2xl flex flex-col cursor-crosshair select-none" id="kaoss-pad">
+
+                    <!-- Background Grid Canvas -->
+                    <canvas id="pad-canvas" class="absolute inset-0 w-full h-full pointer-events-none z-0"></canvas>
+
+                    <!-- Pad Watermark & Coordinate Readout -->
+                    <div class="absolute top-3 left-4 right-4 z-10 pointer-events-none space-y-1">
+                        <span id="pad-watermark" class="text-xs mono uppercase tracking-widest text-slate-600 font-bold block transition-opacity duration-300">X: Tonal Scale &amp; Chromatic Degrees | Y: Velocity &amp; Modal Voicing</span>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-[10px] mono text-cyan-400" id="coord-readout">X: 0.50 | Y: 0.50</span>
+                            <span class="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-[10px] mono text-indigo-400" id="note-readout">Note: C3 (Tonic I)</span>
+                            <span class="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-[10px] mono text-emerald-400" id="voicing-readout">Voicing: Modal Diad</span>
+                            <span class="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-[10px] mono text-amber-400" id="frame-fit-readout">Fit: 100%</span>
+                        </div>
+                    </div>
+
+                    <!-- Companion Avatar / Reply Node -->
+                    <div id="companion-node" class="absolute w-12 h-12 -ml-6 -mt-6 rounded-full pointer-events-none z-20 flex items-center justify-center opacity-0 transition-all duration-75">
+                        <div class="absolute inset-0 rounded-full bg-rose-500/30 animate-ping"></div>
+                        <div class="w-6 h-6 rounded-full bg-gradient-to-tr from-rose-500 to-amber-400 shadow-lg shadow-rose-500/50 border-2 border-white flex items-center justify-center">
+                            <span class="w-2 h-2 rounded-full bg-white animate-pulse"></span>
+                        </div>
+                    </div>
+
+                    <!-- Live User Touch / Vocal Pitch Node -->
+                    <div id="touch-node" class="absolute w-10 h-10 -ml-5 -mt-5 rounded-full bg-gradient-to-tr from-cyan-400 to-blue-500 shadow-xl shadow-cyan-500/50 border-2 border-white pointer-events-none z-20 opacity-0 transition-opacity duration-100 flex items-center justify-center">
+                        <div class="w-2 h-2 rounded-full bg-white"></div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- Right ~40%: Dedicated G EMO Robot Face Screen -->
+            <section id="g-face-section" class="w-full md:w-2/5 flex flex-col transition-all duration-300">
+                <div class="relative w-full h-[260px] md:h-[390px] bg-gradient-to-b from-slate-950 via-black to-slate-950 border border-cyan-500/25 rounded-3xl overflow-hidden shadow-xl flex items-center justify-center pointer-events-none">
+                    <canvas id="g-face-canvas" class="w-full h-full block"></canvas>
+                    <div class="absolute top-3 left-4 flex items-center gap-1.5 text-[10px] mono uppercase tracking-widest text-cyan-400/80">
+                        <span id="g-face-state-dot" class="w-1.5 h-1.5 rounded-full bg-cyan-400/75"></span>
+                        <span id="g-face-state-label">G · Calm / Ready</span>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+
+        <!-- Bottom Controls: Hold-to-Sing & Companion Settings -->
+        <section class="flex flex-col space-y-5">
+
+            <!-- Big Hold-to-Sing / Record Call Phrase Button -->
+            <button type="button" id="hold-sing-btn" class="w-full py-4 px-5 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600 hover:from-indigo-500 hover:via-purple-500 hover:to-rose-500 text-white font-bold text-sm tracking-wide shadow-xl shadow-purple-500/20 active:scale-[0.98] transition-all cursor-pointer flex items-center justify-center gap-3 border border-white/10 select-none">
+                <span id="sing-btn-dot" class="w-3 h-3 rounded-full bg-white/80"></span>
+                <span id="sing-btn-label">HOLD TO SING / RECORD CALL PHRASE</span>
+            </button>
+
+            <!-- Controls Grid -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+                <!-- Companion Call & Response Panel -->
+                <div class="lg:col-span-6 bg-slate-900/80 border border-slate-800/80 rounded-2xl p-5 shadow-xl space-y-4">
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center space-x-2">
+                            <h3 class="text-xs font-semibold tracking-wider text-slate-300 uppercase">Call &amp; Response Companion</h3>
+                            <span id="response-mode-badge" class="text-[10px] mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">Active</span>
+                        </div>
+                    </div>
+
+                    <!-- Vocal Pitch Telemetry Readout (Visible when Mic is active) -->
+                    <div id="vocal-telemetry" class="hidden bg-slate-950/90 border border-purple-500/30 rounded-xl p-3 space-y-1.5 text-xs mono">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="text-purple-400 font-semibold">Detected Vocal:</span>
+                                <span id="detected-hz" class="text-slate-200">-- Hz</span>
+                            </div>
+                            <div>
+                                <span id="detected-note-map" class="text-cyan-400 font-bold">Waiting for voice...</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] pt-1 border-t border-slate-800/80">
+                            <span class="text-slate-400">Vocal Velocity &amp; Y-Axis:</span>
+                            <span id="intonation-feedback" class="text-cyan-400 font-semibold">Dynamic Velocity Tracking Ready</span>
+                        </div>
+                    </div>
+
+                    <!-- Phrase Energy & Mood Meter -->
+                    <div class="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 space-y-2">
+                        <div class="flex justify-between text-[11px] mono">
+                            <span class="text-slate-400">Phrase Energy &amp; Mood:</span>
+                            <span id="energy-label" class="text-amber-400 font-bold">Balanced (50%)</span>
+                        </div>
+                        <div class="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800 p-0.5">
+                            <div id="energy-bar" class="h-full rounded-full bg-gradient-to-r from-cyan-500 via-amber-400 to-rose-500 transition-all duration-300" style="width: 50%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Response Style Selector -->
+                    <div class="space-y-2">
+                        <span class="text-xs text-slate-400 font-medium block">Reply Style</span>
+                        <div class="grid grid-cols-4 gap-2">
+                            <button type="button" data-style="echo" class="reply-style-btn px-2 py-2 rounded-xl border border-cyan-500 bg-cyan-500/20 text-cyan-300 text-xs mono font-semibold transition-all active:scale-95 cursor-pointer">
+                                Echo
+                            </button>
+                            <button type="button" data-style="variation" class="reply-style-btn px-2 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:border-slate-700 hover:text-slate-200 transition-all active:scale-95 cursor-pointer">
+                                Variation
+                            </button>
+                            <button type="button" data-style="harmonize" class="reply-style-btn px-2 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:border-slate-700 hover:text-slate-200 transition-all active:scale-95 cursor-pointer">
+                                Harmonize
+                            </button>
+                            <button type="button" data-style="riff" class="reply-style-btn px-2 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:border-slate-700 hover:text-slate-200 transition-all active:scale-95 cursor-pointer">
+                                Riff
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Controls: Tonal Map & Vocal Formant -->
+                <div class="lg:col-span-6 flex flex-col space-y-4">
+
+                    <!-- Tonal Map Settings -->
+                    <div class="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-5 shadow-xl space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-xs font-semibold tracking-wider text-slate-300 uppercase">Tonal Map</h3>
+                            <span id="root-display" class="text-xs mono text-cyan-400 font-bold px-2 py-0.5 rounded bg-slate-950 border border-slate-800">C3</span>
+                        </div>
+
+                        <!-- Mode Selector -->
+                        <div class="grid grid-cols-3 gap-2" id="mode-buttons">
+                            <button type="button" data-mode="ionian" class="mode-btn px-3 py-2 rounded-xl border border-cyan-500 bg-cyan-500/20 text-cyan-300 text-xs mono font-semibold cursor-pointer">Major</button>
+                            <button type="button" data-mode="dorian" class="mode-btn px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer">Dorian</button>
+                            <button type="button" data-mode="phrygian" class="mode-btn px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer">Phrygian</button>
+                            <button type="button" data-mode="lydian" class="mode-btn px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer">Lydian</button>
+                            <button type="button" data-mode="mixolydian" class="mode-btn px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer">Mixolydian</button>
+                            <button type="button" data-mode="aeolian" class="mode-btn px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer">Minor</button>
+                            <button type="button" data-mode="chromatic" class="mode-btn col-span-3 px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer">12-Tone Chromatic Map (All Semitones &amp; Roles)</button>
+                        </div>
+                    </div>
+
+                    <!-- Vocal Formant Panel -->
+                    <div class="bg-slate-900/80 border border-slate-800/80 rounded-2xl p-5 shadow-xl space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-xs font-semibold tracking-wider text-slate-300 uppercase">Vocal Formant</h3>
+                            <span id="vowel-badge" class="text-xs mono text-rose-400 font-bold px-2 py-0.5 rounded bg-slate-950 border border-slate-800">Oo</span>
+                        </div>
+
+                        <!-- Vowel Buttons -->
+                        <div class="grid grid-cols-4 gap-2">
+                            <button type="button" data-vowel="oo" class="vowel-btn px-3 py-2 rounded-xl border border-rose-500 bg-rose-500/20 text-rose-300 text-xs mono font-semibold cursor-pointer">Oo</button>
+                            <button type="button" data-vowel="oh" class="vowel-btn px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer">Oh</button>
+                            <button type="button" data-vowel="ah" class="vowel-btn px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer">Ah</button>
+                            <button type="button" data-vowel="off" class="vowel-btn px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer">Pure</button>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="w-full max-w-6xl mx-auto pt-4 border-t border-slate-800/80 text-center text-xs text-slate-500 mono">
+        MXRP Companion Architecture — Deliberate Tonal Practice &amp; Call-and-Response Intelligence
+    </footer>
+
+    <!-- Supabase QR Room Link Modal (Controller -> Phone Visor) -->
+    <div id="qr-link-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="w-full max-w-md bg-slate-900 border border-slate-700/80 rounded-3xl p-6 shadow-2xl space-y-5">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-base font-bold text-white flex items-center gap-2">
+                        <span>🤖</span> Link G's Phone Face Visor
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5">Audio stays on laptop · Face syncs on G's reply</p>
+                </div>
+                <button id="close-qr-modal-btn" type="button" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm cursor-pointer">✕</button>
+            </div>
+
+            <!-- QR Code Display -->
+            <div class="flex flex-col items-center justify-center bg-white p-4 rounded-2xl mx-auto w-fit shadow-inner">
+                <div id="qr-code-container"></div>
+            </div>
+
+            <!-- Room Code & Direct Link -->
+            <div class="bg-slate-950/90 border border-slate-800 rounded-2xl p-3.5 space-y-2.5">
+                <div class="flex items-center justify-between text-xs mono">
+                    <span class="text-slate-400">Active Room Code:</span>
+                    <div class="flex items-center gap-2">
+                        <span id="room-code-display" class="text-cyan-400 font-bold text-sm tracking-widest">----</span>
+                        <button id="regen-room-btn" type="button" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 cursor-pointer">New</button>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between text-xs mono">
+                    <span class="text-slate-400">Supabase Sync:</span>
+                    <span id="modal-sync-status" class="text-amber-400 font-semibold">Connecting...</span>
+                </div>
+                <div class="pt-1 border-t border-slate-800/80 flex items-center gap-2">
+                    <input id="robot-share-url" type="text" readonly class="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-[11px] mono text-slate-300 focus:outline-none" />
+                    <button id="copy-robot-url-btn" type="button" class="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shrink-0 cursor-pointer">Copy</button>
+                </div>
+                <p id="copy-feedback-msg" class="hidden text-[11px] mono text-emerald-400 text-right">Copied link to clipboard!</p>
+            </div>
+
+            <div class="flex items-center justify-between gap-2 pt-1">
+                <a id="open-robot-tab-link" href="?role=robot" target="_blank" class="w-full py-2.5 px-4 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-200 text-xs font-semibold text-center transition cursor-pointer">
+                    Preview Phone Face Visor in New Tab ↗
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Face-Only Robot Visor Overlay (?role=robot mode on Phone; Sound remains on Laptop) -->
+    <div id="robot-visor-overlay" class="hidden fixed inset-0 z-40 bg-black flex flex-col items-center justify-center p-2 select-none overflow-hidden">
+        <div class="w-full h-full flex items-center justify-center">
+            <canvas id="robot-visor-canvas" class="w-full h-full block"></canvas>
+        </div>
+    </div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // =========================================================
+        // SUPABASE REALTIME SYNC (LAPTOP CONTROLLER -> PHONE FACE)
+        // =========================================================
+        const SUPABASE_URL = 'https://irvpiyauywmvcbofuvso.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_hlSJFiQWM3taKn7NU-IOQA_3f1v2L82';
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const appRole = urlParams.get('role') === 'robot' ? 'robot' : 'controller';
+        // Keep all audio on the laptop by default; phone displays G's face only
+        const phonePlaysSound = (appRole === 'robot') && (urlParams.get('sound') === '1');
+
+        let activeRoomCode = (urlParams.get('room') || (() => {
+            try { return localStorage.getItem('mxrp_room_code'); } catch (e) { return null; }
+        })() || String(Math.floor(1000 + Math.random() * 9000))).toUpperCase();
+
+        try {
+            localStorage.setItem('mxrp_room_code', activeRoomCode);
+        } catch (e) {}
+
+        let supabaseClient = null;
+        let realtimeChannel = null;
+        let isSupabaseConnected = false;
+        let lastBroadcastTime = 0;
+
+        // Remote face parameters received by ?role=robot phone when G's answer phrase plays
+        let remoteRobotState = {
+            active: false,
+            x: 0.5,
+            y: 0.4,
+            scale: 'ionian',
+            vowel: 'oo',
+            mood: 'balanced',
+            energy: 0.5,
+            vibratoActive: false
+        };
+
+        // Ensure robot visor overlay is strictly hidden unless ?role=robot is active
+        const initialVisorOverlay = document.getElementById('robot-visor-overlay');
+        if (initialVisorOverlay) {
+            if (appRole === 'robot') {
+                initialVisorOverlay.classList.remove('hidden');
+            } else {
+                initialVisorOverlay.classList.add('hidden');
+            }
+        }
+
+        let audioCtx = null;
+        let masterGain = null;
+        let gLiveOsc = null;
+        let gLiveGain = null;
+        let gFaceAnalyser = null;
+        let gFaceFreqData = null;
+        let voiceBanks = [];
+        let breathNoiseNode = null;
+        let breathGainNode = null;
+        let breathFilterNode = null;
+
+        // UI State: Face Bar Visibility
+        let isFaceVisible = true;
+
+        // EMO Robot Face Animation State for G
+        const gFaceCanvas = document.getElementById('g-face-canvas');
+        const gFaceCtx = gFaceCanvas ? gFaceCanvas.getContext('2d') : null;
+        const robotVisorCanvas = document.getElementById('robot-visor-canvas');
+        const robotVisorCtx = robotVisorCanvas ? robotVisorCanvas.getContext('2d') : null;
+        let gBlinkTimer = 2.7;
+        let gBlinkProgress = 0;
+        let gMouthBars = new Array(15).fill(0.08);
+        let gFocusSmooth = 0;
+        let gSmileSmooth = 0.42;
+        let gGazeX = 0;
+        let gGazeY = 0;
+        let gMouthSpanRatio = 1.0;
+        let gMouthHeightRatio = 1.0;
+        let gNoteStartMs = 0;
+        let gLastNoteDeg = -1;
+        let gAudioBound = false;
+
+        // Dynamic EMO Expression Smooth Targets
+        let gTopLid = 0;
+        let gBottomLid = 0;
+        let gEyeRotLeft = 0;
+        let gEyeRotRight = 0;
+        let gMouthPulse = 0;
+        let gEyeThemeColor = '#22d3ee';
+        let gIsHappyArc = false;
+
+        // Microphone & Vocal Pitch Detection Variables
+        let isMicEnabled = false;
+        let micStream = null;
+        let micAnalyser = null;
+        let micDataArray = null;
+        let isHoldingSingBtn = false;
+        let lastCallSource = 'pad';
+        let detectedVocalOctaveShift = 0;
+
+        // Vocal Velocity -> Y-Axis State
+        let smoothedVocalY = 0.25;
+        let lastVocalRms = 0;
+
+        const rootFrequency = 130.81; // C3
+
+        const scales = {
+            ionian: [0, 2, 4, 5, 7, 9, 11, 12, 14, 16],
+            dorian: [0, 2, 3, 5, 7, 9, 10, 12, 14, 15],
+            phrygian: [0, 1, 3, 5, 7, 8, 10, 12, 13, 15],
+            lydian: [0, 2, 4, 6, 7, 9, 11, 12, 14, 16],
+            mixolydian: [0, 2, 4, 5, 7, 9, 10, 12, 14, 16],
+            aeolian: [0, 2, 3, 5, 7, 8, 10, 12, 14, 15],
+            chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        };
+        let currentScaleName = 'ionian';
+
+        const chromaticRoles = [
+            { roman: 'I',    role: 'Tonic Home',       stability: 1.0 },
+            { roman: 'bII',  role: 'Phrygian Tension', stability: 0.25 },
+            { roman: 'II',   role: 'Supertonic Step',  stability: 0.65 },
+            { roman: 'bIII', role: 'Minor Color',      stability: 0.85 },
+            { roman: 'III',  role: 'Major Mediant',    stability: 0.88 },
+            { roman: 'IV',   role: 'Subdominant',      stability: 0.82 },
+            { roman: '#IV',  role: 'Tritone Pivot',    stability: 0.20 },
+            { roman: 'V',    role: 'Dominant Anchor',  stability: 0.95 },
+            { roman: 'bVI',  role: 'Dramatic Submed.', stability: 0.60 },
+            { roman: 'VI',   role: 'Relative Minor',   stability: 0.78 },
+            { roman: 'bVII', role: 'Mixolydian Pull',  stability: 0.70 },
+            { roman: 'VII',  role: 'Leading Tone',     stability: 0.35 }
+        ];
+
+        const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+        const kaossPad = document.getElementById('kaoss-pad');
+        const padCanvas = document.getElementById('pad-canvas');
+        const ctx = padCanvas ? padCanvas.getContext('2d') : null;
+        const touchNode = document.getElementById('touch-node');
+        const companionNode = document.getElementById('companion-node');
+        const coordReadout = document.getElementById('coord-readout');
+        const noteReadout = document.getElementById('note-readout');
+        const voicingReadout = document.getElementById('voicing-readout');
+        const padWatermark = document.getElementById('pad-watermark');
+
+        let isTouching = false;
+        let coordX = 0.5;
+        let coordY = 0.5;
+        let gestureVelocity = 0;
+        let lastTouchTime = performance.now();
+        let lastTouchX = 0.5;
+        let lastTouchY = 0.5;
+        let harmonicPluckPulse = 1.0;
+        let vibratoPhase = 0;
+        let lastActiveSemitone = 0;
+
+        let currentStateIndex = 0;
+        let lastMarkovUpdate = 0;
+        const markovInterval = 2800;
+
+        const markovStates = [
+            { name: "Foundation", weights: [1.0, 0.85, 0.6, 0.45, 0.2, 0.1, 0.05, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+            { name: "Warm Major", weights: [0.8, 0.9, 0.3, 0.7, 0.85, 0.5, 0.15, 0.3, 0.1, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] },
+            { name: "Lydian Air", weights: [0.6, 0.5, 0.2, 0.4, 0.3, 0.7, 0.2, 0.85, 0.6, 0.3, 0.45, 0.2, 0.1, 0.05, 0.0, 0.0] },
+            { name: "Prime Spark", weights: [0.5, 0.4, 0.1, 0.3, 0.2, 0.4, 0.1, 0.5, 0.3, 0.7, 0.85, 0.6, 0.4, 0.2, 0.1, 0.05] }
+        ];
+
+        function stepMarkovChain() {
+            const nextIndex = (currentStateIndex + 1 + Math.floor(Math.random() * (markovStates.length - 1))) % markovStates.length;
+            currentStateIndex = nextIndex;
+        }
+
+        let replyStyle = 'echo';
+        let turnState = 'idle';
+        let recordedCallPhrase = [];
+        let responsePhrase = [];
+        let callStartTime = 0;
+        let responseStartTime = 0;
+        let responseDurationMs = 2500;
+        let companionCoordX = 0.5;
+        let companionCoordY = 0.5;
+        let thinkingTimer = 0;
+        let userPhraseEnergy = 0.5;
+        let phraseMood = 'balanced';
+        let currentFrameFit = 1.0;
+        let accentedNotes = [];
+        let unfurlEvents = [];
+        let companionEnergy = 0.5;
+        let lastRiffMotifId = '';
+
+        const riffMotifLibrary = [
+            { id: 'climb-123234',  name: 'Stepwise Climb (1-2-3-2-3-4)',  intervals: [0, 1, 2, 1, 2, 3],    weights: [0.9, 1.0, 1.1, 0.85, 1.05, 1.35], moodFit: ['radiant', 'balanced', 'calm'] },
+            { id: 'dip-321234',    name: 'Dip & Rise (3-2-1-2-3-4)',      intervals: [2, 1, 0, 1, 2, 3],    weights: [1.0, 0.85, 1.1, 0.9, 1.05, 1.35], moodFit: ['passionate', 'balanced', 'dramatic'] },
+            { id: 'pend-132435',   name: 'Thirds Pendulum (1-3-2-4-3-5)', intervals: [0, 2, 1, 3, 2, 4],    weights: [0.95, 1.0, 0.85, 1.05, 0.9, 1.35], moodFit: ['radiant', 'passionate', 'tense'] },
+            { id: 'arch-1245421',  name: 'Fifth Arch (1-2-4-5-4-2-1)',    intervals: [0, 1, 3, 4, 3, 1, 0], weights: [0.9, 0.85, 1.0, 1.25, 0.9, 0.85, 1.3], moodFit: ['calm', 'dramatic', 'balanced'] },
+            { id: 'cascade-543212',name: 'Cascade Turn (5-4-3-2-1-2-1)',  intervals: [4, 3, 2, 1, 0, 1, 0], weights: [1.1, 0.9, 0.85, 0.9, 1.0, 0.85, 1.35], moodFit: ['dramatic', 'calm', 'tense'] },
+            { id: 'leap-143235',   name: 'Fourth Hook (1-4-3-2-3-5)',     intervals: [0, 3, 2, 1, 2, 4],    weights: [0.95, 1.15, 0.9, 0.85, 1.0, 1.35], moodFit: ['passionate', 'radiant', 'tense'] },
+            { id: 'weave-231243',  name: 'Syncopated Weave (2-3-1-2-4-3)',intervals: [1, 2, 0, 1, 3, 2],    weights: [0.9, 1.05, 0.85, 0.95, 1.15, 1.3], moodFit: ['tense', 'passionate', 'balanced'] },
+            { id: 'turn-12354321', name: 'Apex Turnaround (1-2-3-5-4-3-2-1)', intervals: [0, 1, 2, 4, 3, 2, 1, 0], weights: [0.85, 0.9, 0.95, 1.2, 0.9, 0.85, 0.9, 1.35], moodFit: ['passionate', 'dramatic', 'radiant'] },
+            { id: 'pedal-1514132', name: 'Pedal Bounce (1-5-1-4-1-3-2)',  intervals: [0, 4, 0, 3, 0, 2, 1], weights: [1.0, 1.1, 0.8, 1.05, 0.8, 1.0, 1.3], moodFit: ['tense', 'radiant', 'passionate'] },
+            { id: 'resolve-432171',name: 'Cadence Hook (4-3-2-1-0-1)',    intervals: [3, 2, 1, 0, -1, 0],   weights: [1.0, 0.9, 0.9, 1.05, 0.95, 1.4], moodFit: ['calm', 'dramatic', 'balanced'] }
+        ];
+
+        function generateCreativeRiffReply(callSegments, totalDur, avgY) {
+            const scale = scales[currentScaleName] || scales.ionian;
+            const firstSeg = callSegments[0] || { deg: 0, avgY: 0.5 };
+            const lastSeg = callSegments[callSegments.length - 1] || firstSeg;
+
+            let minDeg = 999, maxDeg = -999;
+            callSegments.forEach(s => {
+                if (s.deg < minDeg) minDeg = s.deg;
+                if (s.deg > maxDeg) maxDeg = s.deg;
+            });
+            const callSpan = Math.max(0, maxDeg - minDeg);
+            const netContour = lastSeg.deg - firstSeg.deg;
+
+            const scoredTemplates = riffMotifLibrary.map(tpl => {
+                let score = 1.0 + Math.random() * 0.45;
+                if (tpl.id === lastRiffMotifId) score -= 1.5;
+                if (tpl.moodFit.includes(phraseMood)) score += 0.65;
+
+                const tplNet = tpl.intervals[tpl.intervals.length - 1] - tpl.intervals[0];
+                if (netContour > 0 && tplNet <= 0) score += 0.4;
+                if (netContour <= 0 && tplNet > 0) score += 0.4;
+
+                const tplSpan = Math.max(...tpl.intervals) - Math.min(...tpl.intervals);
+                if (Math.abs(tplSpan - Math.max(3, callSpan)) <= 2) score += 0.35;
+
+                return { tpl, score };
+            });
+
+            scoredTemplates.sort((a, b) => b.score - a.score);
+            const chosen = scoredTemplates[0].tpl;
+            lastRiffMotifId = chosen.id;
+
+            const anchorCandidates = [lastSeg.deg, firstSeg.deg, 0, Math.min(scale.length - 1, 4)];
+            let anchorDeg = anchorCandidates[Math.floor(Math.random() * 2)];
+            if (anchorDeg + 4 >= scale.length) {
+                anchorDeg = Math.max(0, scale.length - 5);
+            }
+
+            let intervals = [...chosen.intervals];
+            let weights = [...chosen.weights];
+            const mutationRoll = Math.random();
+
+            if (mutationRoll < 0.26 && intervals.length >= 5) {
+                const maxInt = Math.max(...intervals);
+                intervals = intervals.map(iv => maxInt - iv);
+            } else if (mutationRoll < 0.54 && intervals.length >= 4) {
+                const insertAt = 1 + Math.floor(Math.random() * (intervals.length - 2));
+                const passingStep = Math.round((intervals[insertAt - 1] + intervals[insertAt]) / 2);
+                intervals.splice(insertAt, 0, passingStep);
+                weights.splice(insertAt, 0, 0.72);
+            } else if (mutationRoll < 0.78) {
+                const shift = (anchorDeg >= 2 && Math.random() < 0.5) ? -1 : 1;
+                anchorDeg = Math.max(0, Math.min(scale.length - 4, anchorDeg + shift));
+            }
+
+            const rawEndDeg = Math.max(0, Math.min(scale.length - 1, anchorDeg + intervals[intervals.length - 1]));
+            const endChroma = ((scale[rawEndDeg] % 12) + 12) % 12;
+            if (chromaticRoles[endChroma] && chromaticRoles[endChroma].stability < 0.65) {
+                intervals[intervals.length - 1] += (rawEndDeg > 0 ? -1 : 1);
+            }
+
+            const effectiveDur = Math.max(1150, Math.min(3600, totalDur * (userPhraseEnergy > 0.6 ? 0.92 : 1.15)));
+            const swingAmount = (phraseMood === 'passionate' || phraseMood === 'radiant') ? 0.14 : 0.06;
+            const adjustedWeights = weights.map((w, idx) => w * (idx % 2 === 0 ? (1 + swingAmount) : (1 - swingAmount)));
+            const weightSum = adjustedWeights.reduce((acc, w) => acc + w, 0);
+
+            const reply = [];
+            let currentT = 0;
+            intervals.forEach((iv, idx) => {
+                const targetDeg = Math.max(0, Math.min(scale.length - 1, anchorDeg + iv));
+                const lockedX = (targetDeg + 0.5) / scale.length;
+                const baseY = Math.min(0.92, Math.max(0.10, avgY));
+                const noteY = idx === intervals.length - 1 ? Math.min(0.95, baseY + 0.06) : baseY;
+
+                reply.push({
+                    t: currentT,
+                    x: lockedX,
+                    y: noteY
+                });
+
+                currentT += (adjustedWeights[idx] / weightSum) * effectiveDur;
+            });
+
+            responseDurationMs = effectiveDur;
+            return reply;
+        }
+
+        let breathAmount = 0.35;
+        let vibratoSensitivity = 0.7;
+        let currentVowel = 'oo';
+        let formantDepth = 0.65;
+
+        function initAudio() {
+            try {
+                if (!audioCtx) {
+                    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+                    audioCtx = new AudioContextCtor();
+                    masterGain = audioCtx.createGain();
+                    masterGain.gain.setValueAtTime(0.75, audioCtx.currentTime);
+
+                    gFaceAnalyser = audioCtx.createAnalyser();
+                    gFaceAnalyser.fftSize = 256;
+                    gFaceAnalyser.smoothingTimeConstant = 0.72;
+                    gFaceFreqData = new Uint8Array(gFaceAnalyser.frequencyBinCount);
+
+                    masterGain.connect(audioCtx.destination);
+                    masterGain.connect(gFaceAnalyser);
+
+                    gLiveOsc = audioCtx.createOscillator();
+                    gLiveOsc.type = 'triangle';
+                    gLiveOsc.frequency.setValueAtTime(rootFrequency, audioCtx.currentTime);
+                    gLiveGain = audioCtx.createGain();
+                    gLiveGain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+                    gLiveOsc.connect(gLiveGain);
+                    gLiveGain.connect(masterGain);
+                    gLiveOsc.start();
+
+                    voiceBanks = [];
+                    for (let v = 0; v < 4; v++) {
+                        const partials = [];
+                        for (let h = 1; h <= 16; h++) {
+                            const osc = audioCtx.createOscillator();
+                            osc.type = (h === 1) ? 'sine' : (h % 2 === 0 ? 'triangle' : 'sine');
+                            osc.frequency.setValueAtTime(rootFrequency * h, audioCtx.currentTime);
+
+                            const gain = audioCtx.createGain();
+                            gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+
+                            osc.connect(gain);
+                            gain.connect(masterGain);
+                            osc.start();
+
+                            partials.push({ osc, gain, harmonicIndex: h });
+                        }
+                        voiceBanks.push(partials);
+                    }
+
+                    const bufferSize = audioCtx.sampleRate * 2;
+                    const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                    const output = noiseBuffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                        output[i] = Math.random() * 2 - 1;
+                    }
+
+                    breathNoiseNode = audioCtx.createBufferSource();
+                    breathNoiseNode.buffer = noiseBuffer;
+                    breathNoiseNode.loop = true;
+
+                    breathFilterNode = audioCtx.createBiquadFilter();
+                    breathFilterNode.type = 'bandpass';
+                    breathFilterNode.frequency.setValueAtTime(950, audioCtx.currentTime);
+                    breathFilterNode.Q.setValueAtTime(3.2, audioCtx.currentTime);
+
+                    breathGainNode = audioCtx.createGain();
+                    breathGainNode.gain.setValueAtTime(0.00001, audioCtx.currentTime);
+
+                    breathNoiseNode.connect(breathFilterNode);
+                    breathFilterNode.connect(breathGainNode);
+                    breathGainNode.connect(masterGain);
+                    breathNoiseNode.start();
+
+                    const startBtn = document.getElementById('start-audio-btn');
+                    if (startBtn) {
+                        startBtn.textContent = 'Audio Active';
+                        startBtn.classList.remove('from-cyan-500', 'to-blue-600');
+                        startBtn.classList.add('from-emerald-600', 'to-teal-600');
+                    }
+                }
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume().catch(() => {});
+                }
+            } catch (err) {
+                console.warn('Audio initialization error:', err);
+            }
+        }
+
+        function bindAudioUnlock() {
+            if (gAudioBound) return;
+            gAudioBound = true;
+            const unlockAudio = () => {
+                initAudio();
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume().catch(() => {});
+                }
+            };
+            window.addEventListener('pointerdown', unlockAudio, { passive: true });
+            window.addEventListener('keydown', unlockAudio, { passive: true });
+        }
+
+        async function toggleMicrophone() {
+            initAudio();
+            const micBtn = document.getElementById('mic-toggle-btn');
+            const micDot = document.getElementById('mic-dot');
+            const micText = document.getElementById('mic-btn-text');
+            const telemetry = document.getElementById('vocal-telemetry');
+
+            if (!isMicEnabled) {
+                try {
+                    micStream = await navigator.mediaDevices.getUserMedia({
+                        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }
+                    });
+                    const source = audioCtx.createMediaStreamSource(micStream);
+                    micAnalyser = audioCtx.createAnalyser();
+                    micAnalyser.fftSize = 2048;
+                    micDataArray = new Float32Array(micAnalyser.fftSize);
+                    source.connect(micAnalyser);
+
+                    isMicEnabled = true;
+                    micDot.className = 'w-2 h-2 rounded-full bg-rose-500 animate-ping';
+                    micText.textContent = 'Mic Input: ON';
+                    micBtn.className = 'px-4 py-2 rounded-xl border border-rose-500 bg-rose-500/20 text-rose-300 font-semibold text-xs tracking-wide transition-all cursor-pointer flex items-center gap-2';
+                    telemetry.classList.remove('hidden');
+                } catch (err) {
+                    const fbEl = document.getElementById('intonation-feedback');
+                    if (fbEl) fbEl.textContent = 'Microphone access unavailable';
+                }
+            } else {
+                if (micStream) {
+                    micStream.getTracks().forEach(track => track.stop());
+                    micStream = null;
+                }
+                isMicEnabled = false;
+                micAnalyser = null;
+                micDot.className = 'w-2 h-2 rounded-full bg-slate-500';
+                micText.textContent = 'Mic Input: OFF';
+                micBtn.className = 'px-4 py-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 font-semibold text-xs tracking-wide hover:bg-slate-800 active:scale-95 transition-all cursor-pointer flex items-center gap-2';
+                telemetry.classList.add('hidden');
+            }
+        }
+
+        function detectVocalPitchAndEnergy() {
+            if (!isMicEnabled || !micAnalyser || !micDataArray) return null;
+            micAnalyser.getFloatTimeDomainData(micDataArray);
+
+            let sumSquares = 0;
+            for (let i = 0; i < micDataArray.length; i++) {
+                sumSquares += micDataArray[i] * micDataArray[i];
+            }
+            const rms = Math.sqrt(sumSquares / micDataArray.length);
+            if (rms < 0.015) return null;
+
+            let r1 = 0, r2 = micDataArray.length - 1;
+            const threshold = 0.08;
+            for (let i = 0; i < micDataArray.length / 2; i++) {
+                if (Math.abs(micDataArray[i]) < threshold) { r1 = i; break; }
+            }
+            for (let i = 1; i < micDataArray.length / 2; i++) {
+                if (Math.abs(micDataArray[micDataArray.length - i]) < threshold) { r2 = micDataArray.length - i; break; }
+            }
+
+            const trimmed = micDataArray.slice(r1, r2);
+            const len = trimmed.length;
+            if (len < 32) return null;
+
+            const c = new Float32Array(len);
+            for (let i = 0; i < len; i++) {
+                for (let j = 0; j < len - i; j++) {
+                    c[i] += trimmed[j] * trimmed[j + i];
+                }
+            }
+
+            let d = 0;
+            while (d < len - 1 && c[d] > c[d + 1]) d++;
+            let maxVal = -1, maxPos = -1;
+            for (let i = d; i < len; i++) {
+                if (c[i] > maxVal) {
+                    maxVal = c[i];
+                    maxPos = i;
+                }
+            }
+
+            if (maxPos <= 0) return null;
+            const freq = audioCtx.sampleRate / maxPos;
+            if (freq < 65 || freq > 1100) return null;
+
+            return { freq, rms };
+        }
+
+        function translateFrequencyToTonalMap(freq, rms) {
+            const scale = scales[currentScaleName] || scales.ionian;
+            const exactSemisFromRoot = 12 * Math.log2(freq / rootFrequency);
+            const octaveOffset = Math.round(exactSemisFromRoot / 12) * 12;
+            const continuousChroma = ((exactSemisFromRoot % 12) + 12) % 12;
+
+            let bestDegreeIdx = 0;
+            let minSemitoneError = 999;
+            for (let i = 0; i < scale.length; i++) {
+                const scaleChroma = ((scale[i] % 12) + 12) % 12;
+                const diff = Math.min(Math.abs(scaleChroma - continuousChroma), 12 - Math.abs(scaleChroma - continuousChroma));
+                if (diff < minSemitoneError) {
+                    minSemitoneError = diff;
+                    bestDegreeIdx = i;
+                }
+            }
+
+            const centsOff = Math.round(minSemitoneError * 100);
+            const mappedX = (bestDegreeIdx + 0.5) / scale.length;
+
+            const rmsSurge = Math.max(0, rms - lastVocalRms) * 2.4;
+            lastVocalRms = rms;
+
+            const logLoudness = Math.min(1.0, Math.max(0.0, (Math.log10(Math.max(0.008, rms)) - Math.log10(0.008)) / (Math.log10(0.22) - Math.log10(0.008))));
+            const rawVelocityY = Math.min(0.96, Math.max(0.08, logLoudness * 0.85 + rmsSurge));
+
+            const alpha = rawVelocityY > smoothedVocalY ? 0.35 : 0.16;
+            smoothedVocalY = smoothedVocalY + (rawVelocityY - smoothedVocalY) * alpha;
+
+            return { x: mappedX, y: smoothedVocalY, degreeIdx: bestDegreeIdx, octaveOffset, centsOff };
+        }
+
+        function getVocalFormantGain(freqHz, vowel, depth) {
+            if (vowel === 'off' || depth <= 0.05) return 1.0;
+            let f1 = 500, f2 = 1500;
+            if (vowel === 'oo') { f1 = 320; f2 = 800; }
+            else if (vowel === 'oh') { f1 = 550; f2 = 950; }
+            else if (vowel === 'ah') { f1 = 750; f2 = 1200; }
+
+            const d1 = Math.abs(freqHz - f1);
+            const d2 = Math.abs(freqHz - f2);
+            const boost = Math.max(0.2, 1.8 * Math.exp(-(d1 * d1) / 80000) + 1.4 * Math.exp(-(d2 * d2) / 95000));
+            return 1.0 + (boost - 1.0) * depth;
+        }
+
+        function getScaleChordIntervals(x, y) {
+            const scale = scales[currentScaleName] || scales.ionian;
+            const steps = scale.length;
+            const deg = Math.max(0, Math.min(steps - 1, Math.floor(x * steps)));
+
+            const rootSemi = scale[deg];
+            const chroma = ((rootSemi % 12) + 12) % 12;
+
+            let canonicalDeg = deg;
+            for (let i = 0; i < steps; i++) {
+                const candidateChroma = ((scale[i] % 12) + 12) % 12;
+                if (candidateChroma === chroma) {
+                    canonicalDeg = i;
+                    break;
+                }
+            }
+
+            const octaveShift = rootSemi - scale[canonicalDeg];
+
+            const thirdIdx = (canonicalDeg + 2) % steps;
+            const fifthIdx = (canonicalDeg + 4) % steps;
+            const seventhIdx = (canonicalDeg + 6) % steps;
+
+            let thirdSemi = scale[thirdIdx] + (thirdIdx < canonicalDeg ? 12 : 0) + octaveShift;
+            let fifthSemi = scale[fifthIdx] + (fifthIdx < canonicalDeg ? 12 : 0) + octaveShift;
+            let seventhSemi = scale[seventhIdx] + (seventhIdx < canonicalDeg ? 12 : 0) + octaveShift;
+
+            if (currentScaleName === 'ionian' && chroma === 3 && rootSemi >= 12) {
+                thirdSemi = rootSemi + 4;
+                fifthSemi = rootSemi + 7;
+                seventhSemi = rootSemi + 11;
+            }
+
+            const nName = noteNames[chroma];
+            const roleInfo = chromaticRoles[chroma] || chromaticRoles[0];
+
+            if (noteReadout) noteReadout.textContent = `Note: ${nName}3 (${roleInfo.roman} · ${roleInfo.role})`;
+            const rootDisp = document.getElementById('root-display');
+            if (rootDisp) rootDisp.textContent = `${nName}3`;
+
+            return {
+                semitones: [rootSemi, thirdSemi, fifthSemi, seventhSemi],
+                chordName: `${nName} Mode Degree ${roleInfo.roman}`
+            };
+        }
+
+        function getYVoicingProfile(y, isVocalReply = false) {
+            const prefix = isVocalReply ? `Vocal Velocity (${Math.round(y * 100)}%)` : currentScaleName.toUpperCase();
+
+            if (!voicingReadout) return { voiceGains: [1.0, 0.82, 0.0, 0.0] };
+            if (y < 0.33) {
+                voicingReadout.textContent = `Voicing: ${prefix} · Monophonic Lead`;
+                return { voiceGains: [1.0, 0.0, 0.0, 0.0] };
+            } else if (y < 0.66) {
+                voicingReadout.textContent = `Voicing: ${prefix} · Modal Diad`;
+                return { voiceGains: [1.0, 0.82, 0.0, 0.0] };
+            } else if (y < 0.88) {
+                voicingReadout.textContent = `Voicing: ${prefix} · Triad Harmony`;
+                return { voiceGains: [1.0, 0.86, 0.72, 0.0] };
+            } else {
+                voicingReadout.textContent = `Voicing: ${prefix} · Full 7th Extension`;
+                return { voiceGains: [1.0, 0.90, 0.80, 0.68] };
+            }
+        }
+
+        function evaluatePhraseEnergy(points) {
+            if (!points || points.length < 2) return 0.5;
+            const scale = scales[currentScaleName] || scales.ionian;
+
+            let totalDist = 0;
+            let ySum = 0;
+            let noteTransitions = 0;
+            let cumulativeIntervalSpan = 0;
+            let prevDeg = Math.floor(points[0].x * scale.length);
+
+            for (let i = 1; i < points.length; i++) {
+                totalDist += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+                ySum += points[i].y;
+
+                const currDeg = Math.floor(points[i].x * scale.length);
+                if (currDeg !== prevDeg) {
+                    noteTransitions++;
+                    cumulativeIntervalSpan += Math.abs(currDeg - prevDeg) / Math.max(1, scale.length);
+                    prevDeg = currDeg;
+                }
+            }
+
+            const avgY = ySum / points.length;
+            const durationSec = Math.max(0.15, (points[points.length - 1].t - points[0].t) / 1000);
+
+            const transitionDensity = Math.min(1.0, noteTransitions / Math.max(2, durationSec * 3.2));
+            const avgStepSpan = noteTransitions > 0 ? Math.min(1.0, cumulativeIntervalSpan / noteTransitions) : 0;
+            const phraseMotionRate = Math.min(1.0, (totalDist / durationSec) * 0.85);
+
+            const energy = Math.min(
+                1.0,
+                Math.max(
+                    0.1,
+                    transitionDensity * 0.42 +
+                    phraseMotionRate * 0.25 +
+                    avgStepSpan * 0.13 +
+                    avgY * 0.20
+                )
+            );
+
+            if (noteTransitions >= 4 && energy > 0.62) {
+                phraseMood = 'passionate';
+            } else if (avgY < 0.32 && noteTransitions >= 2) {
+                phraseMood = 'dramatic';
+            } else if (noteTransitions <= 1 && totalDist < 0.45) {
+                phraseMood = 'calm';
+            } else if (avgY > 0.72) {
+                phraseMood = 'radiant';
+            } else {
+                phraseMood = 'tense';
+            }
+
+            let stableNotesCount = 0;
+            points.forEach(pt => {
+                const deg = Math.min(scale.length - 1, Math.max(0, Math.floor(pt.x * scale.length)));
+                const chroma = ((scale[deg] % 12) + 12) % 12;
+                if (chromaticRoles[chroma] && chromaticRoles[chroma].stability >= 0.7) {
+                    stableNotesCount++;
+                }
+            });
+            currentFrameFit = Math.max(0.4, stableNotesCount / Math.max(1, points.length));
+            const fitEl = document.getElementById('frame-fit-readout');
+            if (fitEl) fitEl.textContent = `Fit: ${Math.round(currentFrameFit * 100)}%`;
+
+            return energy;
+        }
+
+        function buildComplementaryPhraseContext(callSegments, totalDur, phraseAvgY) {
+            const scale = scales[currentScaleName] || scales.ionian;
+            const steps = scale.length;
+            const safeSegments = callSegments.length > 0
+                ? callSegments
+                : [{ dur: Math.max(250, totalDur), avgY: phraseAvgY, deg: Math.floor(coordX * steps) }];
+
+            const movementDeltas = [];
+            for (let i = 1; i < safeSegments.length; i++) {
+                movementDeltas.push(safeSegments[i].deg - safeSegments[i - 1].deg);
+            }
+            if (movementDeltas.length === 0) {
+                movementDeltas.push(1, -1);
+            }
+
+            const startDeg = Math.max(0, Math.min(steps - 1, safeSegments[0].deg));
+            const endDeg = Math.max(0, Math.min(steps - 1, safeSegments[safeSegments.length - 1].deg));
+            const netDirection = endDeg - startDeg;
+
+            const reshuffledDeltas = [...movementDeltas];
+            for (let i = reshuffledDeltas.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [reshuffledDeltas[i], reshuffledDeltas[j]] = [reshuffledDeltas[j], reshuffledDeltas[i]];
+            }
+
+            const reshuffledSum = reshuffledDeltas.reduce((acc, d) => acc + d, 0);
+            const desiredArc = netDirection > 1 ? -1 : (netDirection < -1 ? 1 : (Math.random() < 0.5 ? 1 : -1));
+            if (Math.sign(reshuffledSum) === Math.sign(desiredArc) && reshuffledDeltas.length > 1) {
+                reshuffledDeltas[reshuffledDeltas.length - 1] = -reshuffledDeltas[reshuffledDeltas.length - 1];
+            }
+
+            let cursorDeg = netDirection > 0
+                ? Math.min(steps - 1, Math.max(0, endDeg + (Math.random() < 0.5 ? 1 : 0)))
+                : Math.max(0, Math.min(steps - 1, endDeg + (Math.random() < 0.5 ? -1 : 1)));
+
+            const lineDegrees = [cursorDeg];
+            reshuffledDeltas.forEach((delta, idx) => {
+                const nudge = (idx === reshuffledDeltas.length - 1) ? desiredArc : 0;
+                cursorDeg = Math.max(0, Math.min(steps - 1, cursorDeg + delta + nudge));
+                lineDegrees.push(cursorDeg);
+            });
+
+            const harmonicTargets = [0, Math.min(steps - 1, 2), Math.min(steps - 1, 4)];
+            const finalDeg = lineDegrees[lineDegrees.length - 1];
+            const bestAnchor = harmonicTargets.reduce((best, cand) =>
+                Math.abs(cand - finalDeg) < Math.abs(best - finalDeg) ? cand : best,
+                harmonicTargets[0]
+            );
+            if (lineDegrees.length > 1 && Math.abs(bestAnchor - finalDeg) <= 2) {
+                lineDegrees[lineDegrees.length - 1] = bestAnchor;
+            }
+
+            const shuffledDurations = safeSegments.map(s => s.dur);
+            for (let i = shuffledDurations.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffledDurations[i], shuffledDurations[j]] = [shuffledDurations[j], shuffledDurations[i]];
+            }
+
+            const totalSegDur = shuffledDurations.reduce((acc, d) => acc + d, 0) || totalDur;
+            const scaleFactor = totalDur / Math.max(1, totalSegDur);
+
+            const points = [];
+            let elapsed = 0;
+            for (let i = 0; i < lineDegrees.length; i++) {
+                const deg = lineDegrees[i];
+                const x = (deg + 0.5) / steps;
+                const arcEnvelope = Math.sin(((i + 0.5) / lineDegrees.length) * Math.PI);
+                const contextLift = (phraseAvgY < 0.35 ? 0.14 : 0.06) * arcEnvelope + (i === lineDegrees.length - 1 ? 0.05 : 0);
+                const y = Math.min(0.94, Math.max(0.10, phraseAvgY * 0.88 + contextLift));
+
+                points.push({ t: elapsed, x, y });
+                const stepDur = (shuffledDurations[i % shuffledDurations.length] || (totalDur / lineDegrees.length)) * scaleFactor;
+                elapsed += Math.max(110, stepDur);
+            }
+
+            if (points.length === 1) {
+                const partnerDeg = bestAnchor !== startDeg ? bestAnchor : Math.min(steps - 1, (startDeg + 2) % steps);
+                points.push({
+                    t: totalDur * 0.55,
+                    x: (partnerDeg + 0.5) / steps,
+                    y: Math.min(0.92, Math.max(0.14, phraseAvgY + 0.1))
+                });
+            }
+
+            return { points, duration: Math.max(totalDur, elapsed) };
+        }
+
+        function synthesizeCompanionResponse(callPoints, isVocalSource = false) {
+            if (!callPoints || callPoints.length === 0) return [];
+
+            const validPoints = isVocalSource
+                ? callPoints.filter(p => p.voiced !== false)
+                : callPoints;
+            const activePoints = validPoints.length > 0 ? validPoints : callPoints;
+
+            userPhraseEnergy = evaluatePhraseEnergy(activePoints);
+            const frameGravity = currentFrameFit >= 0.75 ? 1.0 : 0.65;
+            companionEnergy = userPhraseEnergy > 0.58
+                ? Math.min(1.0, userPhraseEnergy * 1.35 * frameGravity)
+                : Math.max(0.15, userPhraseEnergy * 0.65 * frameGravity);
+
+            const energyPercent = Math.round(userPhraseEnergy * 100);
+            const energyBar = document.getElementById('energy-bar');
+            const energyLabel = document.getElementById('energy-label');
+            if (energyBar) energyBar.style.width = `${energyPercent}%`;
+            const moodTag = phraseMood.charAt(0).toUpperCase() + phraseMood.slice(1);
+            if (energyLabel) energyLabel.textContent = `${userPhraseEnergy > 0.58 ? '⚡ High' : '🌙 Calm'} · ${moodTag} (${energyPercent}%)`;
+
+            const baseDur = Math.max(750, Math.min(4000, activePoints[activePoints.length - 1].t - activePoints[0].t || 1200));
+            const totalDur = isVocalSource ? baseDur : (userPhraseEnergy > 0.58 ? baseDur * 0.82 : baseDur * 1.3);
+
+            const scale = scales[currentScaleName] || scales.ionian;
+            const reply = [];
+
+            const callSegments = [];
+            let segStart = 0;
+            const startT0 = activePoints[0].t;
+            let totalYSum = 0;
+            for (let i = 1; i <= activePoints.length; i++) {
+                totalYSum += activePoints[i - 1].y;
+                const isEnd = i === activePoints.length;
+                const prevDeg = Math.floor(activePoints[i - 1].x * scale.length);
+                const currDeg = isEnd ? -1 : Math.floor(activePoints[i].x * scale.length);
+                if (currDeg !== prevDeg || isEnd) {
+                    const startT = activePoints[segStart].t - startT0;
+                    const endT = isEnd ? baseDur : (activePoints[i].t - startT0);
+                    const dur = Math.max(80, endT - startT);
+                    let avgY = 0;
+                    for (let k = segStart; k < i; k++) avgY += activePoints[k].y;
+                    avgY /= (i - segStart);
+                    callSegments.push({ dur, avgY, deg: prevDeg });
+                    segStart = i;
+                }
+            }
+            const phraseAvgY = totalYSum / activePoints.length;
+
+            if (replyStyle === 'riff') {
+                const riffReply = generateCreativeRiffReply(callSegments, totalDur, phraseAvgY);
+                accentedNotes = detectAccentedNotes(riffReply);
+                unfurlEvents = detectMelodicTurnarounds(riffReply);
+                return riffReply;
+            }
+
+            if (isVocalSource) {
+                const fbEl = document.getElementById('intonation-feedback');
+                const modeLabel = currentScaleName.toUpperCase();
+                if (fbEl) {
+                    fbEl.textContent = `Velocity-Matched Reply · ${modeLabel} Contour`;
+                    fbEl.className = 'text-cyan-400 font-semibold';
+                }
+
+                let cumulativeT = 0;
+                callSegments.forEach((seg, idx) => {
+                    let targetDeg = seg.deg;
+
+                    if (replyStyle === 'variation') {
+                        if (idx === callSegments.length - 1) {
+                            targetDeg = (seg.deg % 2 === 0 && scale.length > 2) ? 2 : 0;
+                        } else {
+                            const stepOffset = (idx % 2 === 0 ? 1 : -1);
+                            targetDeg = Math.min(scale.length - 1, Math.max(0, seg.deg + stepOffset));
+                        }
+                    } else if (replyStyle === 'harmonize') {
+                        targetDeg = Math.min(scale.length - 1, Math.max(0, seg.deg + 2));
+                    } else {
+                        const complementary = buildComplementaryPhraseContext(callSegments, baseDur, phraseAvgY);
+                        responseDurationMs = Math.max(1000, complementary.duration);
+                        accentedNotes = detectAccentedNotes(complementary.points);
+                        unfurlEvents = detectMelodicTurnarounds(complementary.points);
+                        return complementary.points;
+                    }
+
+                    const lockedX = (targetDeg + 0.5) / scale.length;
+                    const lockedY = Math.min(0.95, Math.max(0.08, seg.avgY));
+
+                    reply.push({
+                        t: cumulativeT,
+                        x: lockedX,
+                        y: lockedY
+                    });
+                    cumulativeT += Math.max(180, seg.dur);
+                });
+
+                responseDurationMs = Math.max(1000, cumulativeT);
+                accentedNotes = detectAccentedNotes(reply);
+                unfurlEvents = detectMelodicTurnarounds(reply);
+                return reply;
+            }
+
+            if (replyStyle === 'variation') {
+                let cumulativeT = 0;
+                callSegments.forEach((seg, idx) => {
+                    const progress = cumulativeT / baseDur;
+                    const offsetStep = (idx % 2 === 0 ? 2 : -1);
+                    const baseDeg = Math.floor(activePoints[Math.min(activePoints.length - 1, Math.floor(progress * activePoints.length))].x * scale.length);
+                    const targetDeg = Math.min(scale.length - 1, Math.max(0, baseDeg + offsetStep));
+                    const lockedX = (targetDeg + 0.5) / scale.length;
+                    const lockedY = Math.min(0.9, Math.max(0.1, seg.avgY * (0.8 + companionEnergy * 0.4)));
+
+                    reply.push({
+                        t: cumulativeT,
+                        x: lockedX,
+                        y: lockedY
+                    });
+
+                    cumulativeT += seg.dur;
+                });
+
+                if (reply.length === 0) {
+                    reply.push({ t: 0, x: 0.5, y: 0.5 }, { t: totalDur, x: 0.75, y: 0.6 });
+                }
+            } else {
+                const complementary = buildComplementaryPhraseContext(callSegments, totalDur, phraseAvgY);
+                responseDurationMs = complementary.duration;
+                accentedNotes = detectAccentedNotes(complementary.points);
+                unfurlEvents = detectMelodicTurnarounds(complementary.points);
+                return complementary.points;
+            }
+
+            responseDurationMs = totalDur;
+            accentedNotes = detectAccentedNotes(reply);
+            unfurlEvents = detectMelodicTurnarounds(reply);
+            return reply;
+        }
+
+        function detectMelodicTurnarounds(replyPoints) {
+            if (!replyPoints || replyPoints.length < 2) return [];
+            const scale = scales[currentScaleName] || scales.ionian;
+            const segments = [];
+            let segStart = 0;
+
+            for (let i = 1; i <= replyPoints.length; i++) {
+                const isEnd = i === replyPoints.length;
+                const prevDeg = Math.floor(replyPoints[i - 1].x * scale.length);
+                const currDeg = isEnd ? -1 : Math.floor(replyPoints[i].x * scale.length);
+                if (currDeg !== prevDeg || isEnd) {
+                    const startT = replyPoints[segStart].t;
+                    const endT = isEnd ? responseDurationMs : replyPoints[i].t;
+                    segments.push({ startMs: startT, endMs: endT, dur: endT - startT, deg: prevDeg });
+                    segStart = i;
+                }
+            }
+
+            const events = [];
+            for (let i = 1; i < segments.length - 1; i++) {
+                const d1 = segments[i].deg - segments[i - 1].deg;
+                const d2 = segments[i + 1].deg - segments[i].deg;
+                if ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) {
+                    events.push({
+                        startMs: segments[i].startMs,
+                        windowMs: Math.min(520, Math.max(260, segments[i].dur + 180)),
+                        direction: d1 > 0 ? 1 : -1,
+                        label: d1 > 0 ? '♠ Peak Turnaround Shuffle' : '♦ Valley Turnaround Shuffle'
+                    });
+                }
+            }
+
+            const lastSeg = segments[segments.length - 1];
+            if (lastSeg && (events.length === 0 || lastSeg.dur >= 260)) {
+                const prevDeg = segments.length >= 2 ? segments[segments.length - 2].deg : 0;
+                const dir = lastSeg.deg >= prevDeg ? 1 : -1;
+                events.push({
+                    startMs: lastSeg.startMs,
+                    windowMs: Math.min(600, Math.max(300, lastSeg.dur)),
+                    direction: dir,
+                    label: '♣ Cadence Unfurl Cascade'
+                });
+            }
+
+            return events;
+        }
+
+        function getHarmonicUnfurlState(isResponding, elapsedMs) {
+            if (!isResponding || unfurlEvents.length === 0) {
+                return { active: false, label: 'Standby', voiceEnvelopes: [1, 1, 1, 1], overtoneBloom: 0, elapsedInUnfurl: 0 };
+            }
+
+            let activeEv = null;
+            for (let i = 0; i < unfurlEvents.length; i++) {
+                const ev = unfurlEvents[i];
+                if (elapsedMs >= ev.startMs && elapsedMs <= ev.startMs + ev.windowMs) {
+                    activeEv = ev;
+                    break;
+                }
+            }
+
+            if (!activeEv) {
+                return { active: false, label: 'Phrasing', voiceEnvelopes: [1, 1, 1, 1], overtoneBloom: 0, elapsedInUnfurl: 0 };
+            }
+
+            const dtMs = elapsedMs - activeEv.startMs;
+            const voiceStaggerMs = 38;
+            const voiceOrder = activeEv.direction >= 0 ? [0, 1, 2, 3] : [3, 2, 1, 0];
+            const voiceEnvelopes = [1, 1, 1, 1];
+
+            for (let v = 0; v < 4; v++) {
+                const cardIndex = voiceOrder[v];
+                const delayMs = cardIndex * voiceStaggerMs;
+                if (dtMs < delayMs) {
+                    voiceEnvelopes[v] = v === 0 ? 1.0 : 0.04;
+                } else {
+                    const cardAge = dtMs - delayMs;
+                    const snap = Math.exp(-cardAge / 95) * 0.42;
+                    const rise = Math.min(1.0, cardAge / 28);
+                    voiceEnvelopes[v] = rise * (1.0 + snap);
+                }
+            }
+
+            const overtoneBloom = Math.min(1.0, dtMs / 240);
+            return {
+                active: true,
+                label: activeEv.label,
+                voiceEnvelopes,
+                overtoneBloom,
+                elapsedInUnfurl: dtMs
+            };
+        }
+
+        function detectAccentedNotes(replyPoints) {
+            if (!replyPoints || replyPoints.length === 0) return [];
+            const scale = scales[currentScaleName] || scales.ionian;
+            const segments = [];
+            let segStart = 0;
+
+            for (let i = 1; i <= replyPoints.length; i++) {
+                const isEnd = i === replyPoints.length;
+                const prevDeg = Math.floor(replyPoints[i - 1].x * scale.length);
+                const currDeg = isEnd ? -1 : Math.floor(replyPoints[i].x * scale.length);
+                if (currDeg !== prevDeg || isEnd) {
+                    const startT = replyPoints[segStart].t;
+                    const endT = isEnd ? responseDurationMs : replyPoints[i].t;
+                    const dur = endT - startT;
+                    let avgY = 0;
+                    for (let k = segStart; k < i; k++) avgY += replyPoints[k].y;
+                    avgY /= (i - segStart);
+                    segments.push({ startMs: startT, endMs: endT, dur, avgY });
+                    segStart = i;
+                }
+            }
+
+            const accents = [];
+            let maxScore = 0;
+            let bestSeg = null;
+
+            segments.forEach(seg => {
+                const score = seg.dur * (0.6 + seg.avgY * 0.8);
+                if (score > maxScore) {
+                    maxScore = score;
+                    bestSeg = seg;
+                }
+                if (seg.dur >= 240) {
+                    accents.push({ startMs: seg.startMs, endMs: seg.endMs, intensity: Math.min(1.2, 0.7 + seg.avgY * 0.5) });
+                }
+            });
+
+            if (accents.length === 0 && bestSeg && bestSeg.dur >= 120) {
+                accents.push({ startMs: bestSeg.startMs, endMs: bestSeg.endMs, intensity: 1.0 });
+            }
+            return accents;
+        }
+
+        function getMoodPortamentoSeconds(isResponding, mood, isVocalReply = false) {
+            if (!isResponding) return 0.005;
+            if (isVocalReply) return 0.018;
+            if (mood === 'dramatic' || mood === 'passionate') return 0.026;
+            return 0.006;
+        }
+
+        function getSingingVibratoState(isResponding, elapsedMs, energy, mood, sensitivity, isVocalReply = false) {
+            const energyThreshold = isVocalReply ? 0.32 : 0.55;
+            if (!isResponding || energy <= energyThreshold || sensitivity <= 0.02 || accentedNotes.length === 0) {
+                return { rateHz: 5.2, depthCents: 0, ampTremolo: 0, active: false, label: 'Waiting for Accented Note' };
+            }
+
+            let activeAccent = null;
+            for (let i = 0; i < accentedNotes.length; i++) {
+                if (elapsedMs >= accentedNotes[i].startMs && elapsedMs <= accentedNotes[i].endMs) {
+                    activeAccent = accentedNotes[i];
+                    break;
+                }
+            }
+
+            if (!activeAccent) {
+                return { rateHz: 5.2, depthCents: 0, ampTremolo: 0, active: false, label: 'Phrasing (Straight Tone)' };
+            }
+
+            const noteElapsed = elapsedMs - activeAccent.startMs;
+            const noteRemaining = activeAccent.endMs - elapsedMs;
+
+            const onsetDelayMs = 110;
+            if (noteElapsed < onsetDelayMs) {
+                return { rateHz: 5.2, depthCents: 0, ampTremolo: 0, active: false, label: 'Holding Note (Onset...)' };
+            }
+
+            const bloomIn = Math.min(1.0, (noteElapsed - onsetDelayMs) / 180);
+            const fadeOut = Math.min(1.0, noteRemaining / 90);
+            const vocalEnvelope = bloomIn * fadeOut;
+
+            let rateHz = 5.4;
+            let baseDepth = 22;
+            let label = 'Singing Accent';
+
+            if (mood === 'dramatic') {
+                rateHz = 5.6;
+                baseDepth = 36;
+                label = '♪ Expressive Vocal Vibrato';
+            } else if (mood === 'tense') {
+                rateHz = 6.8;
+                baseDepth = 25;
+                label = '♪ Urgent Vocal Quiver';
+            } else if (mood === 'radiant') {
+                rateHz = 5.2;
+                baseDepth = 26;
+                label = '♪ Warm Singing Vibrato';
+            } else {
+                rateHz = 5.5;
+                baseDepth = 28;
+                label = '♪ Passionate Vocal Bloom';
+            }
+
+            const energyScale = isVocalReply
+                ? Math.min(1.25, Math.max(0.65, energy * 1.4))
+                : Math.min(1.4, (energy - 0.52) * 2.4);
+            const depthCents = baseDepth * energyScale * sensitivity * activeAccent.intensity * vocalEnvelope;
+
+            return {
+                rateHz,
+                depthCents,
+                ampTremolo: 0.14 * vocalEnvelope * sensitivity,
+                active: vocalEnvelope > 0.05,
+                label
+            };
+        }
+
+        let lastFrameTime = performance.now();
+
+        function mainLoop(timestamp) {
+            const dtSec = Math.min(0.1, (timestamp - lastFrameTime) / 1000);
+            lastFrameTime = timestamp;
+
+            gestureVelocity *= 0.92;
+            harmonicPluckPulse = 1.0 + (harmonicPluckPulse - 1.0) * 0.88;
+
+            if (isMicEnabled && micAnalyser) {
+                const vocal = detectVocalPitchAndEnergy();
+                const hzEl = document.getElementById('detected-hz');
+                const noteMapEl = document.getElementById('detected-note-map');
+                const fbEl = document.getElementById('intonation-feedback');
+
+                if (vocal) {
+                    const mapped = translateFrequencyToTonalMap(vocal.freq, vocal.rms);
+                    coordX = mapped.x;
+                    coordY = mapped.y;
+                    updateCoordinatesUI(coordX, coordY);
+
+                    if (touchNode) {
+                        touchNode.style.left = `${coordX * 100}%`;
+                        touchNode.style.top = `${(1 - coordY) * 100}%`;
+                        touchNode.style.opacity = '1';
+                    }
+                    if (padWatermark) padWatermark.style.opacity = '0';
+
+                    if (hzEl) hzEl.textContent = `${Math.round(vocal.freq)} Hz`;
+                    const scale = scales[currentScaleName] || scales.ionian;
+                    const semi = scale[mapped.degreeIdx];
+                    const nName = noteNames[((semi % 12) + 12) % 12];
+                    if (noteMapEl) noteMapEl.textContent = `Mapped: ${nName} (${currentScaleName.toUpperCase()})`;
+
+                    if (fbEl && isHoldingSingBtn) {
+                        const velPct = Math.round(mapped.y * 100);
+                        fbEl.textContent = `${nName} (${currentScaleName.toUpperCase()}) · Velocity Y: ${velPct}%`;
+                        fbEl.className = 'text-cyan-400 font-semibold';
+                    }
+
+                    if (isHoldingSingBtn && turnState === 'recording') {
+                        const elapsed = timestamp - callStartTime;
+                        detectedVocalOctaveShift = Math.max(-12, Math.min(12, mapped.octaveOffset));
+                        recordedCallPhrase.push({ x: coordX, y: coordY, t: elapsed, voiced: true });
+                    }
+                } else if (!isTouching) {
+                    smoothedVocalY = smoothedVocalY * 0.88 + 0.15 * 0.12;
+                    lastVocalRms = 0;
+                    if (touchNode) touchNode.style.opacity = '0';
+                    if (hzEl) hzEl.textContent = `-- Hz`;
+                    if (noteMapEl) noteMapEl.textContent = `Listening...`;
+                }
+            }
+
+            const isResponding = turnState === 'responding';
+            const isVocalReply = isResponding && lastCallSource === 'vocal';
+            const currentElapsedMs = isResponding ? (timestamp - responseStartTime) : 0;
+            const vibParams = getSingingVibratoState(
+                isResponding,
+                currentElapsedMs,
+                userPhraseEnergy,
+                phraseMood,
+                vibratoSensitivity,
+                isVocalReply
+            );
+            const unfurlParams = getHarmonicUnfurlState(isResponding, currentElapsedMs);
+
+            const humanRateJitter = Math.sin(timestamp * 0.0031) * 0.25;
+            vibratoPhase += dtSec * (vibParams.rateHz + humanRateJitter);
+
+            if (turnState === 'thinking') {
+                thinkingTimer -= dtSec;
+                if (thinkingTimer <= 0) {
+                    turnState = 'responding';
+                    responseStartTime = timestamp;
+                    gNoteStartMs = 0;
+                    gLastNoteDeg = -1;
+                }
+            } else if (turnState === 'responding') {
+                const elapsedMs = timestamp - responseStartTime;
+                if (elapsedMs >= responseDurationMs || responsePhrase.length === 0) {
+                    turnState = 'idle';
+                    if (companionNode) {
+                        companionNode.style.opacity = '0';
+                        companionNode.style.transform = 'scale(0.75)';
+                    }
+                    if (padWatermark) padWatermark.style.opacity = '0.85';
+                } else {
+                    let activeStepPt = responsePhrase[0];
+                    for (let i = 0; i < responsePhrase.length; i++) {
+                        if (elapsedMs >= responsePhrase[i].t) {
+                            activeStepPt = responsePhrase[i];
+                        } else {
+                            break;
+                        }
+                    }
+
+                    const activeScale = scales[currentScaleName] || scales.ionian;
+                    const currDeg = Math.floor(activeStepPt.x * activeScale.length);
+                    if (currDeg !== gLastNoteDeg) {
+                        gLastNoteDeg = currDeg;
+                        gNoteStartMs = elapsedMs;
+                        gMouthPulse = 1.0;
+                    }
+
+                    companionCoordX = activeStepPt.x;
+                    companionCoordY = activeStepPt.y;
+                    updateCoordinatesUI(companionCoordX, companionCoordY);
+
+                    if (companionNode) {
+                        companionNode.style.left = `${companionCoordX * 100}%`;
+                        companionNode.style.top = `${(1 - companionCoordY) * 100}%`;
+                        companionNode.style.opacity = '1';
+                        const nodeScale = 0.8 + companionEnergy * 0.6 + (vibParams.active ? Math.sin(vibratoPhase * Math.PI * 2) * 0.08 : 0);
+                        companionNode.style.transform = `scale(${nodeScale})`;
+                    }
+                }
+            }
+
+            if (audioCtx && audioCtx.state === 'running' && voiceBanks.length > 0) {
+                if (timestamp - lastMarkovUpdate > markovInterval) {
+                    lastMarkovUpdate = timestamp;
+                    stepMarkovChain();
+                }
+
+                const driveLocalSynth = (appRole === 'controller') || phonePlaysSound;
+                if (!driveLocalSynth) {
+                    if (gLiveGain) gLiveGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.02);
+                    if (breathGainNode) breathGainNode.gain.setTargetAtTime(0.00001, audioCtx.currentTime, 0.02);
+                    voiceBanks.forEach(partials => {
+                        partials.forEach(item => item.gain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.02));
+                    });
+                } else {
+                    const isSinging = !isHoldingSingBtn && (isTouching || isResponding);
+                    const activeX = isResponding ? companionCoordX : coordX;
+                    const activeY = isResponding ? companionCoordY : coordY;
+
+                    const { semitones } = getScaleChordIntervals(activeX, activeY);
+                    const currentRootSemi = semitones[0];
+
+                    if (isSinging && currentRootSemi !== lastActiveSemitone) {
+                        harmonicPluckPulse = 1.32;
+                        lastActiveSemitone = currentRootSemi;
+                        gMouthPulse = 1.0;
+                    }
+
+                    const { voiceGains } = getYVoicingProfile(activeY, isVocalReply);
+                    const conversationalGainScale = isResponding ? (0.7 + companionEnergy * 0.5) : 1.0;
+                    const pitchPortamentoSec = getMoodPortamentoSeconds(isResponding, phraseMood, isVocalReply);
+
+                    const activeFormantVowel = (isVocalReply && currentVowel === 'off') ? 'oo' : currentVowel;
+                    const activeFormantDepth = isVocalReply ? 0.88 : formantDepth;
+                    const registerOctaveShift = isVocalReply ? detectedVocalOctaveShift : 0;
+
+                    const targetWeights = isVocalReply
+                        ? [1.0, 0.82, 0.56, 0.38, 0.24, 0.14, 0.08, 0.04, 0.02, 0, 0, 0, 0, 0, 0, 0]
+                        : markovStates[currentStateIndex].weights;
+                    const activeVoicesSum = voiceGains.reduce((acc, g) => acc + g, 0);
+                    const voiceNorm = 1.0 / Math.sqrt(Math.max(1, activeVoicesSum));
+                    const baseTimeConstant = isSinging ? (0.065 - activeY * 0.03) : 0.08;
+
+                    const rawSine = Math.sin(vibratoPhase * Math.PI * 2);
+                    const vocalWave = rawSine + 0.15 * Math.sin(vibratoPhase * Math.PI * 4);
+                    const currentDetuneCents = vibParams.depthCents * vocalWave;
+                    const vocalAmpShimmer = 1.0 + vibParams.ampTremolo * rawSine;
+
+                    if (gLiveOsc && gLiveGain) {
+                        const leadSemi = (semitones[0] || 0) + registerOctaveShift;
+                        const leadFreq = rootFrequency * Math.pow(2, leadSemi / 12);
+                        gLiveOsc.frequency.setTargetAtTime(leadFreq, audioCtx.currentTime, pitchPortamentoSec);
+                        gLiveOsc.detune.setTargetAtTime(isSinging && vibParams.active ? currentDetuneCents : 0, audioCtx.currentTime, 0.02);
+                        const leadTargetGain = isSinging
+                            ? Math.min(0.45, (0.16 + activeY * 0.22) * conversationalGainScale)
+                            : 0.0001;
+                        gLiveGain.gain.setTargetAtTime(Math.max(0.0001, leadTargetGain), audioCtx.currentTime, 0.025);
+                    }
+
+                    if (breathGainNode && breathFilterNode) {
+                        const intakeBreathBoost = (turnState === 'thinking') ? 0.04 : 0;
+                        const energyBreathMultiplier = isResponding ? (0.5 + companionEnergy * 0.8) : 1.0;
+                        const activeBreathGain = isSinging ? (breathAmount * 0.06 * (0.3 + activeY * 0.8) * energyBreathMultiplier) : (intakeBreathBoost * breathAmount);
+                        breathGainNode.gain.setTargetAtTime(Math.max(0.00001, activeBreathGain), audioCtx.currentTime, 0.06);
+
+                        const breathCenter = activeFormantVowel === 'oo' ? 750 : (activeFormantVowel === 'ah' ? 1450 : 1050);
+                        breathFilterNode.frequency.setTargetAtTime(breathCenter + activeY * 450, audioCtx.currentTime, 0.08);
+                    }
+
+                    voiceBanks.forEach((partials, vIdx) => {
+                        const voiceSemitone = (semitones[vIdx] || 0) + registerOctaveShift;
+                        const voiceBaseMultiplier = Math.pow(2, voiceSemitone / 12);
+                        const unfurlVoiceMult = unfurlParams.active ? unfurlParams.voiceEnvelopes[vIdx] : 1.0;
+                        const rawVoicePresence = voiceGains[vIdx] || 0;
+                        const voicePresence = (unfurlParams.active && rawVoicePresence === 0 && vIdx <= 2)
+                            ? (0.48 * unfurlVoiceMult)
+                            : (rawVoicePresence * unfurlVoiceMult);
+                        const voiceTimeConstant = unfurlParams.active ? 0.014 : baseTimeConstant;
+
+                        partials.forEach((item, hIdx) => {
+                            const baseWeight = targetWeights[hIdx] || 0;
+
+                            if (isSinging && vibParams.active) {
+                                item.osc.detune.setTargetAtTime(currentDetuneCents * (1 + vIdx * 0.05), audioCtx.currentTime, 0.02);
+                            } else if (isSinging && breathAmount > 0.02) {
+                                const subtleBreathDetune = breathAmount * 1.4 * Math.sin(vibratoPhase * Math.PI * 2);
+                                item.osc.detune.setTargetAtTime(subtleBreathDetune * (1 + vIdx * 0.1), audioCtx.currentTime, 0.04);
+                            } else {
+                                item.osc.detune.setTargetAtTime(0, audioCtx.currentTime, 0.04);
+                            }
+
+                            let altitudeMultiplier = 1.0;
+                            if (hIdx === 0) {
+                                altitudeMultiplier = 1.2 - activeY * 0.35;
+                            } else if (hIdx < 4) {
+                                altitudeMultiplier = 0.25 + activeY * 0.95;
+                            } else if (hIdx < 8) {
+                                altitudeMultiplier = Math.max(0, (activeY - 0.25) * 1.45);
+                            } else {
+                                altitudeMultiplier = Math.max(0, (activeY - 0.5) * 2.1);
+                            }
+
+                            if (isResponding && !isVocalReply && hIdx >= 6) {
+                                altitudeMultiplier *= (0.8 + companionEnergy * 0.9);
+                            }
+
+                            let overtoneShuffleMult = 1.0;
+                            if (unfurlParams.active && hIdx > 0) {
+                                const partialDelayMs = hIdx * 14;
+                                if (unfurlParams.elapsedInUnfurl < partialDelayMs) {
+                                    overtoneShuffleMult = 0.15;
+                                } else {
+                                    const overtoneAge = unfurlParams.elapsedInUnfurl - partialDelayMs;
+                                    overtoneShuffleMult = 1.0 + Math.exp(-overtoneAge / 85) * 0.55;
+                                }
+                            }
+
+                            const partialFreqHz = rootFrequency * item.harmonicIndex * voiceBaseMultiplier;
+                            item.osc.frequency.setTargetAtTime(partialFreqHz, audioCtx.currentTime, pitchPortamentoSec);
+
+                            const formantMod = getVocalFormantGain(partialFreqHz, activeFormantVowel, activeFormantDepth);
+                            const pluckFactor = hIdx > 0 ? harmonicPluckPulse : 1.0;
+                            const baseLevel = hIdx === 0 ? 0.32 : (0.18 / Math.sqrt(item.harmonicIndex));
+                            const excitationLevel = isSinging ? (baseLevel * conversationalGainScale * vocalAmpShimmer) : 0.0001;
+
+                            const targetGain = isSinging
+                                ? (baseWeight * altitudeMultiplier * voicePresence * formantMod * pluckFactor * overtoneShuffleMult * excitationLevel * voiceNorm)
+                                : 0.0001;
+
+                            item.gain.gain.setTargetAtTime(Math.max(0.0001, targetGain), audioCtx.currentTime, voiceTimeConstant);
+                        });
+                    });
+                }
+            }
+
+            // Transfer face parameters ONLY when G's answer phrase is actively playing
+            if (appRole === 'controller' && isSupabaseConnected && realtimeChannel && (timestamp - lastBroadcastTime > 28)) {
+                lastBroadcastTime = timestamp;
+                const answerPhraseActive = Boolean(isResponding);
+                try {
+                    realtimeChannel.send({
+                        type: 'broadcast',
+                        event: 'g-sync',
+                        payload: {
+                            active: answerPhraseActive,
+                            x: companionCoordX,
+                            y: companionCoordY,
+                            scale: currentScaleName,
+                            vowel: (lastCallSource === 'vocal' && currentVowel === 'off') ? 'oo' : currentVowel,
+                            mood: phraseMood,
+                            energy: companionEnergy,
+                            vibratoActive: vibParams.active
+                        }
+                    });
+                } catch (e) {}
+            }
+
+            if (appRole === 'robot') {
+                renderGRobotFace(timestamp, dtSec, remoteRobotState.active, currentElapsedMs, { active: remoteRobotState.vibratoActive }, robotVisorCanvas, robotVisorCtx);
+            } else {
+                renderCanvasVisualizer();
+                if (isFaceVisible) {
+                    renderGRobotFace(timestamp, dtSec, isResponding, currentElapsedMs, vibParams, gFaceCanvas, gFaceCtx);
+                }
+            }
+            requestAnimationFrame(mainLoop);
+        }
+
+        // --- Advanced EMO Robot Squircle Eye & Happy Arc Renderer ---
+        function drawEMOEye(ctx2d, cx, cy, width, height, radius, rotAngle, topLid, bottomLid, blinkAmt, gazeX, gazeY, color, isHappyArc) {
+            ctx2d.save();
+            ctx2d.translate(cx, cy);
+            ctx2d.rotate(rotAngle);
+
+            const openFactor = Math.max(0.04, 1 - blinkAmt * 0.94);
+            const effH = height * openFactor;
+            const halfW = width / 2;
+            const halfH = effH / 2;
+            const lx = gazeX * 10;
+            const ly = gazeY * 6;
+
+            if (isHappyArc && blinkAmt < 0.5) {
+                ctx2d.shadowColor = color;
+                ctx2d.shadowBlur = 24;
+                ctx2d.strokeStyle = color;
+                ctx2d.lineWidth = Math.max(6, width * 0.14);
+                ctx2d.lineCap = 'round';
+
+                ctx2d.beginPath();
+                ctx2d.arc(0, effH * 0.25, width * 0.42, Math.PI * 1.15, Math.PI * 1.85);
+                ctx2d.stroke();
+
+                ctx2d.strokeStyle = '#ffffff';
+                ctx2d.lineWidth = Math.max(2.5, width * 0.05);
+                ctx2d.beginPath();
+                ctx2d.arc(0, effH * 0.25, width * 0.42, Math.PI * 1.3, Math.PI * 1.7);
+                ctx2d.stroke();
+
+                ctx2d.fillStyle = '#ffffff';
+                ctx2d.shadowColor = '#ffffff';
+                ctx2d.shadowBlur = 8;
+                ctx2d.beginPath();
+                ctx2d.arc(-width * 0.22, -effH * 0.15, Math.max(2.5, width * 0.045), 0, Math.PI * 2);
+                ctx2d.fill();
+
+                ctx2d.restore();
+                return;
+            }
+
+            ctx2d.shadowColor = color;
+            ctx2d.shadowBlur = 22;
+            ctx2d.fillStyle = color;
+            ctx2d.beginPath();
+            ctx2d.roundRect(-halfW, -halfH, width, effH, Math.min(radius, effH / 2));
+            ctx2d.fill();
+
+            ctx2d.shadowBlur = 0;
+            const grad = ctx2d.createRadialGradient(lx * 0.5, ly * 0.5 - 4, 3, lx, ly, Math.max(width, effH));
+            grad.addColorStop(0, '#ffffff');
+            grad.addColorStop(0.35, color);
+            grad.addColorStop(1, '#0284c7');
+            ctx2d.fillStyle = grad;
+            ctx2d.beginPath();
+            ctx2d.roundRect(-halfW, -halfH, width, effH, Math.min(radius, effH / 2));
+            ctx2d.fill();
+
+            ctx2d.fillStyle = 'rgba(255, 255, 255, 0.68)';
+            ctx2d.beginPath();
+            ctx2d.arc(-halfW * 0.35 + lx * 0.3, -halfH * 0.35 + ly * 0.3, Math.min(width, effH) * 0.14, 0, Math.PI * 2);
+            ctx2d.fill();
+
+            if (topLid > 0) {
+                ctx2d.fillStyle = '#030712';
+                const lidHeight = effH * topLid;
+                ctx2d.beginPath();
+                ctx2d.rect(-halfW - 5, -halfH - 5, width + 10, lidHeight + 5);
+                ctx2d.fill();
+
+                ctx2d.strokeStyle = 'rgba(34, 211, 238, 0.4)';
+                ctx2d.lineWidth = 2;
+                ctx2d.beginPath();
+                ctx2d.moveTo(-halfW, -halfH + lidHeight);
+                ctx2d.lineTo(halfW, -halfH + lidHeight);
+                ctx2d.stroke();
+            }
+
+            if (bottomLid > 0) {
+                ctx2d.fillStyle = '#030712';
+                const lidHeight = effH * bottomLid;
+                ctx2d.beginPath();
+                ctx2d.rect(-halfW - 5, halfH - lidHeight, width + 10, lidHeight + 5);
+                ctx2d.fill();
+
+                ctx2d.strokeStyle = 'rgba(34, 211, 238, 0.4)';
+                ctx2d.lineWidth = 2;
+                ctx2d.beginPath();
+                ctx2d.moveTo(-halfW, halfH - lidHeight);
+                ctx2d.lineTo(halfW, halfH - lidHeight);
+                ctx2d.stroke();
+            }
+
+            ctx2d.restore();
+        }
+
+        function drawMouthVectorBar(ctx2d, x, centerY, width, height, color, alpha) {
+            ctx2d.save();
+            ctx2d.globalAlpha = Math.max(0.1, Math.min(1, alpha));
+            ctx2d.fillStyle = color;
+            const r = Math.min(width * 0.5, height * 0.5);
+            const y = centerY - height * 0.5;
+            ctx2d.beginPath();
+            ctx2d.roundRect(x, y, width, Math.max(3, height), r);
+            ctx2d.fill();
+            ctx2d.restore();
+        }
+
+        function renderGRobotFace(timestamp, dtSec, isResponding, currentElapsedMs, vibParams, targetCanvas = gFaceCanvas, targetCtx = gFaceCtx) {
+            if (!targetCanvas || !targetCtx) return;
+            if (targetCanvas === gFaceCanvas && !isFaceVisible) return;
+
+            const rect = targetCanvas.getBoundingClientRect();
+            const width = Math.max(1, Math.floor(rect.width || targetCanvas.clientWidth || (targetCanvas === robotVisorCanvas ? window.innerWidth : 320)));
+            const height = Math.max(1, Math.floor(rect.height || targetCanvas.clientHeight || (targetCanvas === robotVisorCanvas ? window.innerHeight : 220)));
+
+            if (targetCanvas.width !== width || targetCanvas.height !== height) {
+                targetCanvas.width = width;
+                targetCanvas.height = height;
+            }
+
+            const fCtx = targetCtx;
+            fCtx.clearRect(0, 0, width, height);
+
+            const isRobotVisor = (targetCanvas === robotVisorCanvas);
+            const answerPlaying = isRobotVisor ? Boolean(remoteRobotState.active) : Boolean(isResponding);
+
+            let audioLevel = 0;
+            if (isRobotVisor) {
+                if (answerPlaying) {
+                    const pulseWave = 0.55 + 0.35 * Math.sin(timestamp * 0.011) + 0.1 * Math.cos(timestamp * 0.023);
+                    audioLevel = Math.min(1.0, pulseWave * (0.65 + (remoteRobotState.energy ?? 0.5) * 0.45));
+                } else {
+                    audioLevel = 0;
+                }
+            } else if (isResponding && gFaceAnalyser && gFaceFreqData) {
+                gFaceAnalyser.getByteFrequencyData(gFaceFreqData);
+                let sum = 0;
+                const count = Math.min(28, gFaceFreqData.length);
+                for (let i = 0; i < count; i++) {
+                    sum += gFaceFreqData[i] / 255;
+                }
+                audioLevel = Math.min(1.0, (sum / count) * 1.95);
+            }
+
+            const gIsSinging = isRobotVisor
+                ? answerPlaying
+                : (isResponding && (audioLevel > 0.02 || responsePhrase.length > 0));
+
+            gMouthPulse = Math.max(0, gMouthPulse - dtSec * 4.5);
+
+            gBlinkTimer -= dtSec;
+            if (gBlinkTimer <= 0 && gBlinkProgress === 0) {
+                gBlinkProgress = 1.0;
+                gBlinkTimer = gIsSinging ? (1.9 + Math.random() * 2.0) : (3.0 + Math.random() * 2.6);
+            }
+            if (gBlinkProgress > 0) {
+                gBlinkProgress = Math.max(0, gBlinkProgress - dtSec * 5.0);
+            }
+            const blinkAmt = gBlinkProgress > 0 ? Math.sin((1 - gBlinkProgress) * Math.PI) : 0;
+
+            const noteHeldMs = gIsSinging ? (currentElapsedMs - gNoteStartMs) : 0;
+            const isSustainedNote = gIsSinging && (noteHeldMs > 380 || (vibParams && vibParams.active));
+            const targetFocus = isSustainedNote ? 1.0 : 0.0;
+            gFocusSmooth += (targetFocus - gFocusSmooth) * Math.min(1, dtSec * 8);
+
+            const activeMood = isRobotVisor ? (answerPlaying ? (remoteRobotState.mood || 'balanced') : 'balanced') : phraseMood;
+
+            let targetTopLid = 0;
+            let targetBottomLid = 0;
+            let targetRotL = 0;
+            let targetRotR = 0;
+            let targetThemeColor = '#22d3ee';
+            let targetHappyArc = false;
+            let targetSmile = 0.42;
+
+            if (gIsSinging) {
+                if (activeMood === 'radiant') {
+                    targetHappyArc = true;
+                    targetThemeColor = '#38bdf8';
+                    targetSmile = 0.92;
+                } else if (activeMood === 'passionate') {
+                    targetTopLid = 0.15;
+                    targetBottomLid = 0.2;
+                    targetThemeColor = '#fbbf24';
+                    targetSmile = 0.85;
+                } else if (activeMood === 'dramatic' || activeMood === 'tense') {
+                    targetRotL = 0.18;
+                    targetRotR = -0.18;
+                    targetTopLid = 0.38;
+                    targetBottomLid = 0.15;
+                    targetThemeColor = '#a855f7';
+                    targetSmile = 0.55;
+                } else if (isSustainedNote) {
+                    targetTopLid = 0.68;
+                    targetBottomLid = 0.18;
+                    targetThemeColor = '#22d3ee';
+                    targetSmile = 0.65;
+                } else {
+                    targetTopLid = 0.1;
+                    targetSmile = 0.7;
+                }
+            } else {
+                targetTopLid = 0.05;
+                targetBottomLid = 0.05;
+                targetSmile = 0.42;
+                targetThemeColor = '#22d3ee';
+            }
+
+            const lerpSpeed = Math.min(1, dtSec * 8);
+            gTopLid += (targetTopLid - gTopLid) * lerpSpeed;
+            gBottomLid += (targetBottomLid - gBottomLid) * lerpSpeed;
+            gEyeRotLeft += (targetRotL - gEyeRotLeft) * lerpSpeed;
+            gEyeRotRight += (targetRotR - gEyeRotRight) * lerpSpeed;
+            gSmileSmooth += (targetSmile - gSmileSmooth) * lerpSpeed;
+            gIsHappyArc = targetHappyArc;
+            gEyeThemeColor = targetThemeColor;
+
+            const activeTrackX = isRobotVisor ? (remoteRobotState.x ?? 0.5) : companionCoordX;
+            const activeTrackY = isRobotVisor ? (remoteRobotState.y ?? 0.4) : companionCoordY;
+            const targetGazeX = gIsSinging ? ((activeTrackX - 0.5) * 1.2) : Math.sin(timestamp * 0.0012) * 0.1;
+            const targetGazeY = gIsSinging ? ((activeTrackY - 0.5) * -0.8) : 0;
+            gGazeX += (targetGazeX - gGazeX) * Math.min(1, dtSec * 8);
+            gGazeY += (targetGazeY - gGazeY) * Math.min(1, dtSec * 8);
+
+            const eyeWidth = Math.min(isRobotVisor ? 116 : 48, width * 0.15);
+            const eyeHeight = Math.min(isRobotVisor ? 136 : 56, height * 0.36);
+            const eyeRadius = Math.min(isRobotVisor ? 44 : 22, eyeWidth * 0.45);
+            const eyeGap = Math.min(isRobotVisor ? 156 : 68, width * 0.17);
+            const eyesY = height * 0.38;
+            const leftEyeX = width * 0.5 - eyeGap * 0.5 - eyeWidth * 0.5;
+            const rightEyeX = width * 0.5 + eyeGap * 0.5 + eyeWidth * 0.5;
+
+            drawEMOEye(fCtx, leftEyeX, eyesY, eyeWidth, eyeHeight, eyeRadius, gEyeRotLeft, gTopLid, gBottomLid, blinkAmt, gGazeX, gGazeY, gEyeThemeColor, gIsHappyArc);
+            drawEMOEye(fCtx, rightEyeX, eyesY, eyeWidth, eyeHeight, eyeRadius, gEyeRotRight, gTopLid, gBottomLid, blinkAmt, gGazeX, gGazeY, gEyeThemeColor, gIsHappyArc);
+
+            const activeY = isRobotVisor
+                ? (answerPlaying ? (remoteRobotState.y ?? 0.4) : 0.4)
+                : (gIsSinging ? companionCoordY : (isTouching ? coordY : 0.4));
+            const activeFaceVowel = isRobotVisor
+                ? (answerPlaying ? (remoteRobotState.vowel || 'off') : 'off')
+                : ((isResponding && lastCallSource === 'vocal' && currentVowel === 'off') ? 'oo' : currentVowel);
+
+            let ySpanFactor = 0.5 + activeY * 0.75;
+            let yHeightFactor = 0.55 + activeY * 0.95;
+
+            if (activeFaceVowel === 'oo' || activeY < 0.28) {
+                ySpanFactor *= 0.65;
+                yHeightFactor *= 1.25;
+            } else if (activeFaceVowel === 'ah' || activeY > 0.72) {
+                ySpanFactor *= 1.25;
+                yHeightFactor *= 1.35;
+            }
+
+            const notePulseBoost = 1.0 + gMouthPulse * 0.35;
+            const targetSpanRatio = (gIsSinging ? (0.75 * ySpanFactor) : 0.85) * notePulseBoost;
+            const targetHeightRatio = (gIsSinging ? (0.8 * yHeightFactor) : 0.8) * notePulseBoost;
+
+            const shapeLerp = Math.min(1, dtSec * 10);
+            gMouthSpanRatio += (targetSpanRatio - gMouthSpanRatio) * shapeLerp;
+            gMouthHeightRatio += (targetHeightRatio - gMouthHeightRatio) * shapeLerp;
+
+            const mouthCenterY = height * 0.78;
+            const oFactor = Math.max(0, Math.min(1, (0.34 - activeY) / 0.24));
+            const barCount = 15;
+            const baseMouthSpan = Math.min(isRobotVisor ? 330 : 156, width * 0.44);
+            const mouthSpan = baseMouthSpan * gMouthSpanRatio * (1 - oFactor * 0.62);
+            const barWidth = Math.max(isRobotVisor ? 5 : 2.5, (mouthSpan / barCount) * 0.46);
+            const stepW = mouthSpan / barCount;
+            const startX = width * 0.5 - mouthSpan * 0.5 + (stepW - barWidth) * 0.5;
+            const maxBarH = Math.min(isRobotVisor ? 80 : 36, height * 0.25) * gMouthHeightRatio;
+
+            for (let i = 0; i < barCount; i++) {
+                const u = (i / (barCount - 1)) * 2 - 1;
+                const smileCurve = 1 - u * u;
+                const oArcHeight = Math.sqrt(Math.max(0.04, 1 - u * u));
+                const centerWeight = Math.max(0.24, 1 - u * u * 0.6) * (1 - oFactor) + oArcHeight * oFactor;
+
+                let targetNorm = 0.10;
+                if (gIsSinging) {
+                    const binIndex = Math.min(
+                        (gFaceFreqData ? gFaceFreqData.length - 1 : 1),
+                        Math.floor(Math.abs(u) * 14) + 1
+                    );
+                    const binVal = (!isRobotVisor && gFaceFreqData) ? (gFaceFreqData[binIndex] / 255) : 0.35;
+                    const waveMod = 0.5 + 0.5 * Math.sin(timestamp * 0.018 - Math.abs(u) * 3.5);
+                    const amp = Math.max(audioLevel * 0.85, binVal * 1.15);
+                    targetNorm = Math.min(1.0, (0.18 + amp * (0.55 + 0.45 * waveMod)) * centerWeight * notePulseBoost);
+                } else if (oFactor > 0.05) {
+                    targetNorm = 0.14 + oFactor * 0.45 * oArcHeight;
+                }
+
+                const rate = gIsSinging ? Math.min(1, dtSec * 22) : Math.min(1, dtSec * 10);
+                gMouthBars[i] += (targetNorm - gMouthBars[i]) * rate;
+
+                const barH = Math.max(3.5, gMouthBars[i] * maxBarH * (1 + oFactor * 0.45));
+                const smileLift = ((0.55 + gSmileSmooth * 0.45) * (1 - smileCurve) * 10) * (1 - oFactor);
+                const oVerticalOffset = (1 - oArcHeight) * (barH * 0.45) * oFactor;
+                const barY = mouthCenterY - smileLift + oVerticalOffset;
+                const color = gEyeThemeColor;
+                const alpha = gIsSinging ? (0.55 + gMouthBars[i] * 0.45) : (0.5 + smileCurve * 0.18);
+
+                drawMouthVectorBar(fCtx, startX + i * stepW, barY, barWidth, barH, color, alpha);
+            }
+        }
+
+        function renderCanvasVisualizer() {
+            if (!padCanvas || !ctx) return;
+            const rect = padCanvas.getBoundingClientRect();
+            const width = Math.max(1, Math.floor(rect.width || padCanvas.clientWidth || 480));
+            const height = Math.max(1, Math.floor(rect.height || padCanvas.clientHeight || 340));
+            if (padCanvas.width !== width || padCanvas.height !== height) {
+                padCanvas.width = width;
+                padCanvas.height = height;
+            }
+
+            ctx.clearRect(0, 0, width, height);
+
+            const scale = scales[currentScaleName] || scales.ionian;
+            const laneWidth = width / scale.length;
+            const activeDeg = Math.min(scale.length - 1, Math.max(0, Math.floor((turnState === 'responding' ? companionCoordX : coordX) * scale.length)));
+
+            for (let i = 0; i < scale.length; i++) {
+                const semi = scale[i];
+                const chromaMod = ((semi % 12) + 12) % 12;
+                const roleInfo = chromaticRoles[chromaMod] || chromaticRoles[0];
+
+                ctx.strokeStyle = 'rgba(51, 65, 85, 0.42)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(i * laneWidth, 0);
+                ctx.lineTo(i * laneWidth, height);
+                ctx.stroke();
+
+                const noteLabel = noteNames[chromaMod];
+
+                ctx.fillStyle = (i === activeDeg) ? 'rgba(255, 255, 255, 0.9)' : 'rgba(148, 163, 184, 0.55)';
+                ctx.font = 'bold 10px JetBrains Mono';
+                ctx.fillText(noteLabel, i * laneWidth + 5, height - 22);
+
+                ctx.fillStyle = 'rgba(125, 211, 252, 0.45)';
+                ctx.font = '9px JetBrains Mono';
+                ctx.fillText(roleInfo.roman, i * laneWidth + 5, height - 10);
+            }
+        }
+
+        function updateCoordinatesUI(x, y) {
+            if (coordReadout) coordReadout.textContent = `X: ${x.toFixed(2)} | Y: ${y.toFixed(2)}`;
+            getScaleChordIntervals(x, y);
+            getYVoicingProfile(y, turnState === 'responding' && lastCallSource === 'vocal');
+        }
+
+        const holdSingBtn = document.getElementById('hold-sing-btn');
+        const singBtnDot = document.getElementById('sing-btn-dot');
+        const singBtnLabel = document.getElementById('sing-btn-label');
+
+        async function startVocalPhraseRecord(e) {
+            if (e) e.preventDefault();
+            initAudio();
+            if (!isMicEnabled) {
+                await toggleMicrophone();
+            }
+            if (!isMicEnabled) return;
+
+            isHoldingSingBtn = true;
+            lastCallSource = 'vocal';
+            detectedVocalOctaveShift = 0;
+            turnState = 'recording';
+            callStartTime = performance.now();
+            recordedCallPhrase = [{ x: coordX, y: coordY, t: 0, voiced: false }];
+
+            const modeBadge = document.getElementById('response-mode-badge');
+            if (modeBadge) {
+                modeBadge.textContent = 'Vocal Companion Mode';
+                modeBadge.className = 'text-[10px] mono px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30';
+            }
+
+            if (singBtnDot) singBtnDot.className = 'w-3.5 h-3.5 rounded-full bg-rose-400 animate-ping';
+            if (singBtnLabel) singBtnLabel.textContent = 'LISTENING TO YOUR VOICE... (RELEASE TO SEND)';
+            if (holdSingBtn) holdSingBtn.classList.add('ring-4', 'ring-rose-500/40');
+        }
+
+        function endVocalPhraseRecord() {
+            if (!isHoldingSingBtn) return;
+            isHoldingSingBtn = false;
+            initAudio();
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => {});
+            }
+
+            if (singBtnDot) singBtnDot.className = 'w-3 h-3 rounded-full bg-white/80';
+            if (singBtnLabel) singBtnLabel.textContent = 'HOLD TO SING / RECORD CALL PHRASE';
+            if (holdSingBtn) holdSingBtn.classList.remove('ring-4', 'ring-rose-500/40');
+
+            if (turnState === 'recording') {
+                turnState = 'thinking';
+                thinkingTimer = 0.45;
+                responsePhrase = synthesizeCompanionResponse(recordedCallPhrase, true);
+            }
+        }
+
+        // Face Bar Visibility Toggle Event
+        const toggleFaceBtn = document.getElementById('toggle-face-btn');
+        const faceBtnIcon = document.getElementById('face-btn-icon');
+        const faceBtnText = document.getElementById('face-btn-text');
+        const kaossSection = document.getElementById('kaoss-section');
+        const gFaceSection = document.getElementById('g-face-section');
+
+        toggleFaceBtn?.addEventListener('click', () => {
+            isFaceVisible = !isFaceVisible;
+            if (isFaceVisible) {
+                gFaceSection?.classList.remove('hidden');
+                if (kaossSection) kaossSection.className = 'w-full md:w-3/5 flex flex-col transition-all duration-300';
+                if (faceBtnIcon) faceBtnIcon.textContent = '👁️';
+                if (faceBtnText) faceBtnText.textContent = 'Face: SHOWN';
+                if (toggleFaceBtn) toggleFaceBtn.className = 'px-3.5 py-2 rounded-xl border border-cyan-500/40 bg-cyan-950/60 text-cyan-300 font-semibold text-xs tracking-wide hover:bg-cyan-900/60 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5';
+            } else {
+                gFaceSection?.classList.add('hidden');
+                if (kaossSection) kaossSection.className = 'w-full flex flex-col transition-all duration-300';
+                if (faceBtnIcon) faceBtnIcon.textContent = '🙈';
+                if (faceBtnText) faceBtnText.textContent = 'Face: HIDDEN (100% Stage)';
+                if (toggleFaceBtn) toggleFaceBtn.className = 'px-3.5 py-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-400 font-semibold text-xs tracking-wide hover:bg-slate-800 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5';
+            }
+            setTimeout(() => {
+                renderCanvasVisualizer();
+            }, 50);
+        });
+
+        holdSingBtn?.addEventListener('mousedown', startVocalPhraseRecord);
+        window.addEventListener('mouseup', endVocalPhraseRecord);
+        holdSingBtn?.addEventListener('touchstart', startVocalPhraseRecord, { passive: false });
+        window.addEventListener('touchend', endVocalPhraseRecord);
+
+        function handlePadStart(clientX, clientY) {
+            if (!kaossPad) return;
+            initAudio();
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => {});
+            }
+            isTouching = true;
+            lastCallSource = 'pad';
+            detectedVocalOctaveShift = 0;
+            if (padWatermark) padWatermark.style.opacity = '0';
+            if (touchNode) touchNode.style.opacity = '1';
+
+            const modeBadge = document.getElementById('response-mode-badge');
+            if (modeBadge) {
+                modeBadge.textContent = 'Active';
+                modeBadge.className = 'text-[10px] mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20';
+            }
+
+            const rect = kaossPad.getBoundingClientRect();
+            coordX = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+            coordY = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / Math.max(1, rect.height)));
+
+            updateCoordinatesUI(coordX, coordY);
+            if (touchNode) {
+                touchNode.style.left = `${coordX * 100}%`;
+                touchNode.style.top = `${(1 - coordY) * 100}%`;
+            }
+
+            turnState = 'recording';
+            callStartTime = performance.now();
+            recordedCallPhrase = [{ x: coordX, y: coordY, t: 0 }];
+
+            harmonicPluckPulse = 1.45;
+            lastTouchTime = performance.now();
+            lastTouchX = coordX;
+            lastTouchY = coordY;
+        }
+
+        function handlePadMove(clientX, clientY) {
+            if (!isTouching || !kaossPad) return;
+
+            const rect = kaossPad.getBoundingClientRect();
+            coordX = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+            coordY = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / Math.max(1, rect.height)));
+
+            updateCoordinatesUI(coordX, coordY);
+            if (touchNode) {
+                touchNode.style.left = `${coordX * 100}%`;
+                touchNode.style.top = `${(1 - coordY) * 100}%`;
+            }
+
+            const now = performance.now();
+            const dt = Math.max(1, now - lastTouchTime);
+            const dist = Math.hypot(coordX - lastTouchX, coordY - lastTouchY);
+            gestureVelocity = dist / dt;
+
+            lastTouchTime = now;
+            lastTouchX = coordX;
+            lastTouchY = coordY;
+
+            if (turnState === 'recording') {
+                const elapsed = now - callStartTime;
+                recordedCallPhrase.push({ x: coordX, y: coordY, t: elapsed });
+            }
+        }
+
+        function handlePadEnd() {
+            if (!isTouching) return;
+            isTouching = false;
+            if (touchNode) touchNode.style.opacity = '0';
+
+            if (turnState === 'recording') {
+                turnState = 'thinking';
+                thinkingTimer = 0.55;
+                responsePhrase = synthesizeCompanionResponse(recordedCallPhrase, false);
+            }
+        }
+
+        kaossPad?.addEventListener('mousedown', (e) => handlePadStart(e.clientX, e.clientY));
+        window.addEventListener('mousemove', (e) => handlePadMove(e.clientX, e.clientY));
+        window.addEventListener('mouseup', handlePadEnd);
+
+        kaossPad?.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) handlePadStart(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: true });
+        window.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 0) handlePadMove(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: true });
+        window.addEventListener('touchend', handlePadEnd);
+
+        document.getElementById('start-audio-btn')?.addEventListener('click', initAudio);
+        document.getElementById('mic-toggle-btn')?.addEventListener('click', toggleMicrophone);
+
+        document.querySelectorAll('.reply-style-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.reply-style-btn').forEach(b => {
+                    b.className = 'reply-style-btn px-2 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:border-slate-700 hover:text-slate-200 transition-all active:scale-95 cursor-pointer';
+                });
+                btn.className = 'reply-style-btn px-2 py-2 rounded-xl border border-cyan-500 bg-cyan-500/20 text-cyan-300 text-xs mono font-semibold transition-all active:scale-95 cursor-pointer';
+                replyStyle = btn.getAttribute('data-style');
+            });
+        });
+
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.mode-btn').forEach(b => {
+                    b.className = b.classList.contains('col-span-3')
+                        ? 'mode-btn col-span-3 px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer'
+                        : 'mode-btn px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer';
+                });
+                btn.className = btn.classList.contains('col-span-3')
+                    ? 'mode-btn col-span-3 px-3 py-2 rounded-xl border border-cyan-500 bg-cyan-500/20 text-cyan-300 text-xs mono font-semibold cursor-pointer'
+                    : 'mode-btn px-3 py-2 rounded-xl border border-cyan-500 bg-cyan-500/20 text-cyan-300 text-xs mono font-semibold cursor-pointer';
+                currentScaleName = btn.getAttribute('data-mode');
+                updateCoordinatesUI(coordX, coordY);
+            });
+        });
+
+        document.querySelectorAll('.vowel-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.vowel-btn').forEach(b => {
+                    b.className = 'vowel-btn px-3 py-2 rounded-xl border border-slate-800 bg-slate-950 text-slate-400 text-xs mono font-semibold hover:text-slate-200 cursor-pointer';
+                });
+                btn.className = 'vowel-btn px-3 py-2 rounded-xl border border-rose-500 bg-rose-500/20 text-rose-300 text-xs mono font-semibold cursor-pointer';
+                currentVowel = btn.getAttribute('data-vowel');
+                const vBadge = document.getElementById('vowel-badge');
+                if (vBadge) vBadge.textContent = currentVowel.toUpperCase();
+            });
+        });
+
+        // =========================================================
+        // SUPABASE REALTIME CHANNEL & QR LINK UI HANDLERS
+        // =========================================================
+        function getRobotShareUrl(roomCode) {
+            const baseUrl = window.location.href.split('?')[0];
+            return `${baseUrl}?role=robot&room=${encodeURIComponent(roomCode)}`;
+        }
+
+        function refreshQrModalDisplay() {
+            const shareUrl = getRobotShareUrl(activeRoomCode);
+            const roomDisplay = document.getElementById('room-code-display');
+            const shareInput = document.getElementById('robot-share-url');
+            const tabLink = document.getElementById('open-robot-tab-link');
+            const qrContainer = document.getElementById('qr-code-container');
+
+            if (roomDisplay) roomDisplay.textContent = activeRoomCode;
+            if (shareInput) shareInput.value = shareUrl;
+            if (tabLink) tabLink.href = `?role=robot&room=${encodeURIComponent(activeRoomCode)}`;
+
+            if (qrContainer && window.QRCode) {
+                qrContainer.innerHTML = '';
+                try {
+                    new QRCode(qrContainer, {
+                        text: shareUrl,
+                        width: 176,
+                        height: 176,
+                        colorDark: '#030712',
+                        colorLight: '#ffffff',
+                        correctLevel: QRCode.CorrectLevel.M
+                    });
+                } catch (e) {}
+            }
+        }
+
+        function connectSupabaseChannel(roomCode) {
+            const statusDot = document.getElementById('sb-status-dot');
+            const modalStatus = document.getElementById('modal-sync-status');
+
+            if (!window.supabase) return;
+            try {
+                if (!supabaseClient) {
+                    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                }
+                if (realtimeChannel) {
+                    supabaseClient.removeChannel(realtimeChannel);
+                    realtimeChannel = null;
+                }
+
+                isSupabaseConnected = false;
+                if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+                if (modalStatus) {
+                    modalStatus.textContent = 'Connecting...';
+                    modalStatus.className = 'text-amber-400 font-semibold';
+                }
+
+                realtimeChannel = supabaseClient.channel(`mxrp-room-${roomCode}`, {
+                    config: { broadcast: { self: false } }
+                });
+
+                realtimeChannel
+                    .on('broadcast', { event: 'g-sync' }, ({ payload }) => {
+                        if (!payload) return;
+                        const wasActive = Boolean(remoteRobotState.active);
+                        const prevX = remoteRobotState.x;
+                        remoteRobotState = { ...remoteRobotState, ...payload };
+                        if (payload.active && (!wasActive || Math.abs((payload.x ?? 0.5) - prevX) > 0.04)) {
+                            gMouthPulse = 1.0;
+                        }
+                    })
+                    .subscribe((status) => {
+                        if (status === 'SUBSCRIBED') {
+                            isSupabaseConnected = true;
+                            if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+                            if (modalStatus) {
+                                modalStatus.textContent = `Live · Room ${roomCode}`;
+                                modalStatus.className = 'text-emerald-400 font-semibold';
+                            }
+                        }
+                    });
+            } catch (err) {
+                isSupabaseConnected = false;
+                if (statusDot) statusDot.className = 'w-2 h-2 rounded-full bg-amber-400';
+                if (modalStatus) {
+                    modalStatus.textContent = 'Offline / Host Required';
+                    modalStatus.className = 'text-amber-400 font-semibold';
+                }
+            }
+        }
+
+        const qrModal = document.getElementById('qr-link-modal');
+        document.getElementById('link-robot-btn')?.addEventListener('click', () => {
+            refreshQrModalDisplay();
+            qrModal?.classList.remove('hidden');
+        });
+        document.getElementById('close-qr-modal-btn')?.addEventListener('click', () => {
+            qrModal?.classList.add('hidden');
+        });
+        qrModal?.addEventListener('click', (e) => {
+            if (e.target === qrModal) qrModal.classList.add('hidden');
+        });
+
+        document.getElementById('regen-room-btn')?.addEventListener('click', () => {
+            activeRoomCode = String(Math.floor(1000 + Math.random() * 9000));
+            try {
+                localStorage.setItem('mxrp_room_code', activeRoomCode);
+            } catch (e) {}
+            refreshQrModalDisplay();
+            connectSupabaseChannel(activeRoomCode);
+        });
+
+        document.getElementById('copy-robot-url-btn')?.addEventListener('click', () => {
+            const input = document.getElementById('robot-share-url');
+            if (!input) return;
+            input.select();
+            input.setSelectionRange(0, 99999);
+            try {
+                document.execCommand('copy');
+                const msg = document.getElementById('copy-feedback-msg');
+                if (msg) {
+                    msg.classList.remove('hidden');
+                    setTimeout(() => msg.classList.add('hidden'), 2000);
+                }
+            } catch (e) {}
+        });
+
+        if (appRole === 'robot') {
+            document.getElementById('robot-visor-overlay')?.classList.remove('hidden');
+        } else {
+            document.getElementById('robot-visor-overlay')?.classList.add('hidden');
+        }
+
+        try {
+            connectSupabaseChannel(activeRoomCode);
+        } catch (err) {
+            console.warn('Supabase sync skipped:', err);
+        }
+        renderCanvasVisualizer();
+        updateCoordinatesUI(coordX, coordY);
+        if (appRole !== 'robot' || phonePlaysSound) {
+            bindAudioUnlock();
+        }
+        requestAnimationFrame(mainLoop);
+    </script>
+</body>
+</html>
