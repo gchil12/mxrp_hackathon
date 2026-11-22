@@ -387,12 +387,17 @@
             if (typeof payload.soundOnRobot === 'boolean' && payload.soundOnRobot !== soundOnRobot) {
                 setSoundOutputMode(payload.soundOnRobot, false);
             }
-            // Keep remoteRobotState synced with incoming payload; when inactive, explicitly clear active & note state
-            if (payload.active) {
+            // Keep remoteRobotState synced with incoming payload; track both call (user singing/touching) and reply states
+            const isCallPlaying = Boolean(payload.callActive);
+            const isReplyPlaying = Boolean(payload.active);
+            const isAnySoundPlaying = isReplyPlaying || isCallPlaying;
+
+            if (isAnySoundPlaying) {
                 remoteRobotState = {
                     ...remoteRobotState,
                     ...payload,
-                    active: true,
+                    active: isReplyPlaying,
+                    callActive: isCallPlaying,
                     x: typeof payload.x === 'number' ? payload.x : remoteRobotState.x,
                     y: typeof payload.y === 'number' ? payload.y : remoteRobotState.y,
                     energy: typeof payload.energy === 'number' ? payload.energy : remoteRobotState.energy,
@@ -406,6 +411,7 @@
                     ...remoteRobotState,
                     ...payload,
                     active: false,
+                    callActive: false,
                     vibratoActive: false
                 };
             }
@@ -415,6 +421,7 @@
         }
 
         function emitFaceSyncPayload(payload) {
+            // 1. Same-origin tab/window fallback (works even when external WebSockets are sandboxed)
             try {
                 if (localBroadcastChannel) {
                     localBroadcastChannel.postMessage({ room: activeRoomCode, payload });
@@ -428,6 +435,7 @@
                 );
             } catch (e) {}
 
+            // 2. Supabase Realtime WebSocket broadcast when allowed by the environment
             if (!isSandboxWebSocketBlocked && isSupabaseConnected && realtimeChannel) {
                 try {
                     realtimeChannel.send({
@@ -439,8 +447,10 @@
             }
         }
 
+        // Remote face parameters received by ?role=robot phone when G's answer phrase plays
         let remoteRobotState = {
             active: false,
+            callActive: false,
             x: 0.5,
             y: 0.4,
             scale: 'ionian',
@@ -450,15 +460,6 @@
             vibratoActive: false,
             soundOnRobot: soundOnRobot
         };
-
-        const initialVisorOverlay = document.getElementById('robot-visor-overlay');
-        if (initialVisorOverlay) {
-            if (appRole === 'robot') {
-                initialVisorOverlay.classList.remove('hidden');
-            } else {
-                initialVisorOverlay.classList.add('hidden');
-            }
-        }
 
         let audioCtx = null;
         let masterGain = null;
@@ -920,14 +921,16 @@
             }
 
             if (broadcast && appRole === 'controller') {
+                const isUserCalling = !isHoldingSingBtn && isTouching;
                 emitFaceSyncPayload({
                     active: turnState === 'responding',
-                    x: companionCoordX,
-                    y: companionCoordY,
+                    callActive: isUserCalling,
+                    x: isUserCalling ? coordX : companionCoordX,
+                    y: isUserCalling ? coordY : companionCoordY,
                     scale: currentScaleName,
                     vowel: (lastCallSource === 'vocal' && currentVowel === 'off') ? 'oo' : currentVowel,
                     mood: phraseMood,
-                    energy: companionEnergy,
+                    energy: isUserCalling ? Math.max(0.35, coordY) : companionEnergy,
                     vibratoActive: false,
                     soundOnRobot: soundOnRobot
                 });
@@ -1772,8 +1775,10 @@
                 if (!driveLocalSynth) {
                     silenceAllLocalSynth(false);
                 } else if (appRole === 'robot' && soundOnRobot) {
-                    // On the ?role=robot phone, sound MUST mirror the remote reply state received from the laptop
-                    const remoteActive = Boolean(remoteRobotState.active);
+                    // On the ?role=robot phone, play both G's reply AND the user's call so all sound comes from one source
+                    const remoteReplyActive = Boolean(remoteRobotState.active);
+                    const remoteCallActive = Boolean(remoteRobotState.callActive);
+                    const remoteActive = remoteReplyActive || remoteCallActive;
                     const remoteX = typeof remoteRobotState.x === 'number' ? remoteRobotState.x : 0.5;
                     const remoteY = typeof remoteRobotState.y === 'number' ? remoteRobotState.y : 0.4;
                     const remoteEnergy = typeof remoteRobotState.energy === 'number' ? remoteRobotState.energy : 0.5;
@@ -1782,7 +1787,7 @@
                     const remoteScaleName = remoteRobotState.scale || currentScaleName;
 
                     if (!remoteActive) {
-                        // Hard silence when G is not actively replying so no lingering hum or drone occurs
+                        // Hard silence when neither call nor reply is active
                         silenceAllLocalSynth(false);
                     } else {
                         const prevScale = currentScaleName;
@@ -1798,8 +1803,8 @@
                         }
 
                         const { voiceGains } = getYVoicingProfile(remoteY, false);
-                        const conversationalGainScale = 0.72 + remoteEnergy * 0.52;
-                        const pitchPortamentoSec = getMoodPortamentoSeconds(true, remoteMood, false);
+                        const conversationalGainScale = remoteReplyActive ? (0.72 + remoteEnergy * 0.52) : 0.92;
+                        const pitchPortamentoSec = remoteReplyActive ? getMoodPortamentoSeconds(true, remoteMood, false) : 0.012;
                         const targetWeights = markovStates[currentStateIndex].weights;
                         const activeVoicesSum = voiceGains.reduce((acc, g) => acc + g, 0);
                         const voiceNorm = 1.0 / Math.sqrt(Math.max(1, activeVoicesSum));
@@ -1983,14 +1988,19 @@
             if (appRole === 'controller' && (timestamp - lastBroadcastTime > 28)) {
                 lastBroadcastTime = timestamp;
                 const answerPhraseActive = Boolean(isResponding);
+                const userCallActive = !isHoldingSingBtn && isTouching;
+                const syncX = userCallActive ? coordX : companionCoordX;
+                const syncY = userCallActive ? coordY : companionCoordY;
+                const syncEnergy = userCallActive ? Math.max(0.35, coordY) : companionEnergy;
                 emitFaceSyncPayload({
                     active: answerPhraseActive,
-                    x: companionCoordX,
-                    y: companionCoordY,
+                    callActive: userCallActive,
+                    x: syncX,
+                    y: syncY,
                     scale: currentScaleName,
                     vowel: (lastCallSource === 'vocal' && currentVowel === 'off') ? 'oo' : currentVowel,
                     mood: phraseMood,
-                    energy: companionEnergy,
+                    energy: syncEnergy,
                     vibratoActive: vibParams.active,
                     soundOnRobot: soundOnRobot
                 });
