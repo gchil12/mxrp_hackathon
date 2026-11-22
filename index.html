@@ -19,6 +19,20 @@
         .mono {
             font-family: 'JetBrains Mono', monospace;
         }
+        /* Rotate the robot visor horizontally when a portrait phone is held upright */
+        @media (orientation: portrait) {
+            #robot-visor-overlay.landscape-locked #robot-visor-stage {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                width: 100vh;
+                height: 100vw;
+                max-width: none;
+                max-height: none;
+                transform: translate(-50%, -50%) rotate(90deg);
+                transform-origin: center center;
+            }
+        }
         ::-webkit-scrollbar {
             width: 6px;
             height: 6px;
@@ -251,7 +265,7 @@
                     <h2 class="text-base font-bold text-white flex items-center gap-2">
                         <span>🤖</span> Link G's Phone Face Visor
                     </h2>
-                    <p class="text-xs text-slate-400 mt-0.5">Audio stays on laptop · Face syncs on G's reply</p>
+                    <p id="qr-modal-subtitle" class="text-xs text-slate-400 mt-0.5">Sound: Laptop · Face syncs on G's reply</p>
                 </div>
                 <button id="close-qr-modal-btn" type="button" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm cursor-pointer">✕</button>
             </div>
@@ -259,6 +273,18 @@
             <!-- QR Code Display -->
             <div class="flex flex-col items-center justify-center bg-white p-4 rounded-2xl mx-auto w-fit shadow-inner">
                 <div id="qr-code-container"></div>
+            </div>
+
+            <!-- Sound Output Toggle (Sound: Laptop / Sound: Robot) -->
+            <div class="bg-slate-950/90 border border-slate-800 rounded-2xl p-3.5 flex items-center justify-between gap-3">
+                <div>
+                    <span class="text-xs font-semibold text-slate-200 block">Reply Sound Output</span>
+                    <span id="sound-route-desc" class="text-[11px] text-slate-400">Plays on Laptop speakers</span>
+                </div>
+                <button id="sound-output-toggle-btn" type="button" class="px-3.5 py-2 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs mono font-semibold transition-all cursor-pointer flex items-center gap-2 shrink-0">
+                    <span id="sound-output-dot" class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                    <span id="sound-output-btn-text">Sound: Laptop</span>
+                </button>
             </div>
 
             <!-- Room Code & Direct Link -->
@@ -289,17 +315,17 @@
         </div>
     </div>
 
-    <!-- Face-Only Robot Visor Overlay (?role=robot mode on Phone; Sound remains on Laptop) -->
-    <div id="robot-visor-overlay" class="hidden fixed inset-0 z-40 bg-black flex flex-col items-center justify-center p-2 select-none overflow-hidden">
-        <div class="fixed bottom-4 right-4 z-50 flex items-center gap-2">
-            <span id="visor-wakelock-badge" class="px-2.5 py-1.5 rounded-full bg-slate-900/75 border border-emerald-500/30 text-[10px] mono text-emerald-300/90 backdrop-blur-sm">
-                ☀ Wake: Standby
-            </span>
-            <button id="visor-fullscreen-btn" type="button" class="px-3 py-1.5 rounded-full bg-slate-900/75 hover:bg-slate-800 border border-cyan-500/35 text-[11px] mono text-cyan-300/90 backdrop-blur-sm transition cursor-pointer">
-                ⛶ Fullscreen
-            </button>
-        </div>
-        <div class="w-full h-full flex items-center justify-center">
+    <!-- Horizontal Face-Only Robot Visor Overlay (?role=robot mode on Phone) -->
+    <div id="robot-visor-overlay" class="hidden landscape-locked fixed inset-0 z-40 bg-black flex flex-col items-center justify-center select-none overflow-hidden">
+        <div id="robot-visor-stage" class="w-full h-full relative flex items-center justify-center">
+            <div class="fixed bottom-4 right-4 z-50 flex items-center gap-2">
+                <span id="visor-wakelock-badge" class="px-2.5 py-1.5 rounded-full bg-slate-900/75 border border-emerald-500/30 text-[10px] mono text-emerald-300/90 backdrop-blur-sm">
+                    ☀ Wake: Standby
+                </span>
+                <button id="visor-fullscreen-btn" type="button" class="px-3 py-1.5 rounded-full bg-slate-900/75 hover:bg-slate-800 border border-cyan-500/35 text-[11px] mono text-cyan-300/90 backdrop-blur-sm transition cursor-pointer">
+                    ⛶ Fullscreen
+                </button>
+            </div>
             <canvas id="robot-visor-canvas" class="w-full h-full block"></canvas>
         </div>
     </div>
@@ -314,8 +340,8 @@
 
         const urlParams = new URLSearchParams(window.location.search);
         const appRole = urlParams.get('role') === 'robot' ? 'robot' : 'controller';
-        // Keep all audio on the laptop by default; phone displays G's face only
-        const phonePlaysSound = (appRole === 'robot') && (urlParams.get('sound') === '1');
+        // false = Sound: Laptop, true = Sound: Robot (phone AUX / speaker)
+        let soundOnRobot = urlParams.get('sound') === '1';
 
         let activeRoomCode = (urlParams.get('room') || (() => {
             try { return localStorage.getItem('mxrp_room_code'); } catch (e) { return null; }
@@ -336,7 +362,6 @@
             if (typeof window === 'undefined' || typeof window.WebSocket !== 'function') {
                 return false;
             }
-            // Detect sandboxed preview iframes (e.g. blob: or null origin or Canvas preview sandboxes)
             if (window.location.protocol === 'blob:' || window.location.protocol === 'file:' || window.origin === 'null') {
                 return false;
             }
@@ -347,6 +372,9 @@
             if (!payload) return;
             const wasActive = Boolean(remoteRobotState.active);
             const prevX = remoteRobotState.x;
+            if (typeof payload.soundOnRobot === 'boolean' && payload.soundOnRobot !== soundOnRobot) {
+                setSoundOutputMode(payload.soundOnRobot, false);
+            }
             remoteRobotState = { ...remoteRobotState, ...payload };
             if (payload.active && (!wasActive || Math.abs((payload.x ?? 0.5) - prevX) > 0.04)) {
                 gMouthPulse = 1.0;
@@ -354,7 +382,6 @@
         }
 
         function emitFaceSyncPayload(payload) {
-            // 1. Same-origin tab/window fallback (works even when external WebSockets are sandboxed)
             try {
                 if (localBroadcastChannel) {
                     localBroadcastChannel.postMessage({ room: activeRoomCode, payload });
@@ -368,7 +395,6 @@
                 );
             } catch (e) {}
 
-            // 2. Supabase Realtime WebSocket broadcast when allowed by the environment
             if (!isSandboxWebSocketBlocked && isSupabaseConnected && realtimeChannel) {
                 try {
                     realtimeChannel.send({
@@ -380,7 +406,6 @@
             }
         }
 
-        // Remote face parameters received by ?role=robot phone when G's answer phrase plays
         let remoteRobotState = {
             active: false,
             x: 0.5,
@@ -389,10 +414,10 @@
             vowel: 'oo',
             mood: 'balanced',
             energy: 0.5,
-            vibratoActive: false
+            vibratoActive: false,
+            soundOnRobot: soundOnRobot
         };
 
-        // Ensure robot visor overlay is strictly hidden unless ?role=robot is active
         const initialVisorOverlay = document.getElementById('robot-visor-overlay');
         if (initialVisorOverlay) {
             if (appRole === 'robot') {
@@ -413,10 +438,8 @@
         let breathGainNode = null;
         let breathFilterNode = null;
 
-        // UI State: Face Bar Visibility
         let isFaceVisible = true;
 
-        // EMO Robot Face Animation State for G
         const gFaceCanvas = document.getElementById('g-face-canvas');
         const gFaceCtx = gFaceCanvas ? gFaceCanvas.getContext('2d') : null;
         const robotVisorCanvas = document.getElementById('robot-visor-canvas');
@@ -434,7 +457,6 @@
         let gLastNoteDeg = -1;
         let gAudioBound = false;
 
-        // Dynamic EMO Expression Smooth Targets
         let gTopLid = 0;
         let gBottomLid = 0;
         let gEyeRotLeft = 0;
@@ -443,7 +465,6 @@
         let gEyeThemeColor = '#22d3ee';
         let gIsHappyArc = false;
 
-        // Microphone & Vocal Pitch Detection Variables
         let isMicEnabled = false;
         let micStream = null;
         let micAnalyser = null;
@@ -452,11 +473,10 @@
         let lastCallSource = 'pad';
         let detectedVocalOctaveShift = 0;
 
-        // Vocal Velocity -> Y-Axis State
         let smoothedVocalY = 0.25;
         let lastVocalRms = 0;
 
-        const rootFrequency = 130.81; // C3
+        const rootFrequency = 130.81;
 
         const scales = {
             ionian: [0, 2, 4, 5, 7, 9, 11, 12, 14, 16],
@@ -741,6 +761,59 @@
             };
             window.addEventListener('pointerdown', unlockAudio, { passive: true });
             window.addEventListener('keydown', unlockAudio, { passive: true });
+        }
+
+        function updateSoundRoutingUI() {
+            const btnText = document.getElementById('sound-output-btn-text');
+            const dot = document.getElementById('sound-output-dot');
+            const desc = document.getElementById('sound-route-desc');
+            const subtitle = document.getElementById('qr-modal-subtitle');
+
+            if (soundOnRobot) {
+                if (btnText) btnText.textContent = 'Sound: Robot';
+                if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+                if (desc) desc.textContent = 'Routes reply voice to Phone AUX / Robot';
+                if (subtitle) subtitle.textContent = 'Sound: Robot · Face & voice sync on phone';
+            } else {
+                if (btnText) btnText.textContent = 'Sound: Laptop';
+                if (dot) dot.className = 'w-2 h-2 rounded-full bg-cyan-400';
+                if (desc) desc.textContent = 'Plays on Laptop speakers';
+                if (subtitle) subtitle.textContent = 'Sound: Laptop · Face syncs on G\'s reply';
+            }
+        }
+
+        function setSoundOutputMode(enableOnRobot, broadcast = true) {
+            soundOnRobot = Boolean(enableOnRobot);
+            remoteRobotState.soundOnRobot = soundOnRobot;
+            updateSoundRoutingUI();
+
+            const driveLocalSynth = (appRole === 'controller' && !soundOnRobot) || (appRole === 'robot' && soundOnRobot);
+            if (!driveLocalSynth && audioCtx && audioCtx.state === 'running') {
+                if (gLiveGain) gLiveGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.02);
+                if (breathGainNode) breathGainNode.gain.setTargetAtTime(0.00001, audioCtx.currentTime, 0.02);
+                voiceBanks.forEach(partials => {
+                    partials.forEach(item => item.gain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.02));
+                });
+            } else if (driveLocalSynth) {
+                bindAudioUnlock();
+                if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume().catch(() => {});
+                }
+            }
+
+            if (broadcast && appRole === 'controller') {
+                emitFaceSyncPayload({
+                    active: turnState === 'responding',
+                    x: companionCoordX,
+                    y: companionCoordY,
+                    scale: currentScaleName,
+                    vowel: (lastCallSource === 'vocal' && currentVowel === 'off') ? 'oo' : currentVowel,
+                    mood: phraseMood,
+                    energy: companionEnergy,
+                    vibratoActive: false,
+                    soundOnRobot: soundOnRobot
+                });
+            }
         }
 
         async function toggleMicrophone() {
@@ -1568,7 +1641,7 @@
                     stepMarkovChain();
                 }
 
-                const driveLocalSynth = (appRole === 'controller') || phonePlaysSound;
+                const driveLocalSynth = (appRole === 'controller' && !soundOnRobot) || (appRole === 'robot' && soundOnRobot);
                 if (!driveLocalSynth) {
                     if (gLiveGain) gLiveGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.02);
                     if (breathGainNode) breathGainNode.gain.setTargetAtTime(0.00001, audioCtx.currentTime, 0.02);
@@ -1696,7 +1769,6 @@
                 }
             }
 
-            // Transfer face parameters ONLY when G's answer phrase is actively playing
             if (appRole === 'controller' && (timestamp - lastBroadcastTime > 28)) {
                 lastBroadcastTime = timestamp;
                 const answerPhraseActive = Boolean(isResponding);
@@ -1708,7 +1780,8 @@
                     vowel: (lastCallSource === 'vocal' && currentVowel === 'off') ? 'oo' : currentVowel,
                     mood: phraseMood,
                     energy: companionEnergy,
-                    vibratoActive: vibParams.active
+                    vibratoActive: vibParams.active,
+                    soundOnRobot: soundOnRobot
                 });
             }
 
@@ -1723,7 +1796,6 @@
             requestAnimationFrame(mainLoop);
         }
 
-        // --- Advanced EMO Robot Squircle Eye & Happy Arc Renderer ---
         function drawEMOEye(ctx2d, cx, cy, width, height, radius, rotAngle, topLid, bottomLid, blinkAmt, gazeX, gazeY, color, isHappyArc) {
             ctx2d.save();
             ctx2d.translate(cx, cy);
@@ -2124,7 +2196,6 @@
             }
         }
 
-        // Face Bar Visibility Toggle Event
         const toggleFaceBtn = document.getElementById('toggle-face-btn');
         const faceBtnIcon = document.getElementById('face-btn-icon');
         const faceBtnText = document.getElementById('face-btn-text');
@@ -2248,6 +2319,10 @@
 
         document.getElementById('start-audio-btn')?.addEventListener('click', initAudio);
         document.getElementById('mic-toggle-btn')?.addEventListener('click', toggleMicrophone);
+        document.getElementById('sound-output-toggle-btn')?.addEventListener('click', () => {
+            setSoundOutputMode(!soundOnRobot, true);
+            refreshQrModalDisplay();
+        });
 
         document.querySelectorAll('.reply-style-btn').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -2286,9 +2361,6 @@
             });
         });
 
-        // =========================================================
-        // SUPABASE REALTIME CHANNEL & QR LINK UI HANDLERS
-        // =========================================================
         function setupLocalSyncFallback(roomCode) {
             try {
                 if (localBroadcastChannel) {
@@ -2321,7 +2393,8 @@
 
         function getRobotShareUrl(roomCode) {
             const baseUrl = window.location.href.split('?')[0];
-            return `${baseUrl}?role=robot&room=${encodeURIComponent(roomCode)}`;
+            const soundFlag = soundOnRobot ? '&sound=1' : '';
+            return `${baseUrl}?role=robot&room=${encodeURIComponent(roomCode)}${soundFlag}`;
         }
 
         function refreshQrModalDisplay() {
@@ -2333,7 +2406,7 @@
 
             if (roomDisplay) roomDisplay.textContent = activeRoomCode;
             if (shareInput) shareInput.value = shareUrl;
-            if (tabLink) tabLink.href = `?role=robot&room=${encodeURIComponent(activeRoomCode)}`;
+            if (tabLink) tabLink.href = `?role=robot&room=${encodeURIComponent(activeRoomCode)}${soundOnRobot ? '&sound=1' : ''}`;
 
             if (qrContainer && window.QRCode) {
                 qrContainer.innerHTML = '';
@@ -2466,6 +2539,16 @@
             const wakeBadge = document.getElementById('visor-wakelock-badge');
             let wakeLockSentinel = null;
 
+            const lockHorizontalOrientation = async () => {
+                try {
+                    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                        await screen.orientation.lock('landscape');
+                    }
+                } catch (err) {
+                    // CSS 90deg fallback remains active when browser lock is unsupported
+                }
+            };
+
             const updateWakeBadge = (label, active) => {
                 if (!wakeBadge) return;
                 wakeBadge.textContent = label;
@@ -2511,6 +2594,7 @@
                 } catch (err) {
                     console.warn('Fullscreen request skipped:', err);
                 }
+                await lockHorizontalOrientation();
             };
 
             const syncFsLabel = () => {
@@ -2537,9 +2621,14 @@
                 }
             });
 
-            // Tapping the visor helps satisfy Android's user-gesture requirement for Wake Lock & Fullscreen
             visorOverlay?.addEventListener('pointerdown', async () => {
                 await requestScreenWakeLock();
+                if (soundOnRobot) {
+                    initAudio();
+                    if (audioCtx && audioCtx.state === 'suspended') {
+                        audioCtx.resume().catch(() => {});
+                    }
+                }
             }, { passive: true });
 
             document.addEventListener('fullscreenchange', syncFsLabel);
@@ -2550,11 +2639,13 @@
                 }
             });
 
+            lockHorizontalOrientation();
             requestScreenWakeLock();
         } else {
             document.getElementById('robot-visor-overlay')?.classList.add('hidden');
         }
 
+        setSoundOutputMode(soundOnRobot, false);
         try {
             connectSupabaseChannel(activeRoomCode);
         } catch (err) {
@@ -2562,7 +2653,7 @@
         }
         renderCanvasVisualizer();
         updateCoordinatesUI(coordX, coordY);
-        if (appRole !== 'robot' || phonePlaysSound) {
+        if (appRole !== 'robot' || soundOnRobot) {
             bindAudioUnlock();
         }
         requestAnimationFrame(mainLoop);
