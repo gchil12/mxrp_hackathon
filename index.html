@@ -287,6 +287,12 @@
                 </button>
             </div>
 
+            <!-- Phone Audio Unlock Status Banner (Visible when Sound: Robot is active) -->
+            <div id="robot-audio-status-box" class="bg-slate-950/70 border border-slate-800/80 rounded-2xl px-3.5 py-2.5 flex items-center justify-between text-[11px] mono">
+                <span class="text-slate-400">Phone Audio Engine:</span>
+                <span id="robot-audio-status-text" class="text-slate-300">Laptop Output Active</span>
+            </div>
+
             <!-- Room Code & Direct Link -->
             <div class="bg-slate-950/90 border border-slate-800 rounded-2xl p-3.5 space-y-2.5">
                 <div class="flex items-center justify-between text-xs mono">
@@ -318,6 +324,12 @@
     <!-- Horizontal Face-Only Robot Visor Overlay (?role=robot mode on Phone) -->
     <div id="robot-visor-overlay" class="hidden landscape-locked fixed inset-0 z-40 bg-black flex flex-col items-center justify-center select-none overflow-hidden">
         <div id="robot-visor-stage" class="w-full h-full relative flex items-center justify-center">
+            <!-- Prominent Audio Unlock Pill for Phone Visor -->
+            <button id="visor-audio-unlock-btn" type="button" class="hidden fixed top-4 left-4 z-50 px-3.5 py-2 rounded-full bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/60 text-xs mono font-semibold text-amber-200 backdrop-blur-sm transition cursor-pointer flex items-center gap-2 shadow-lg">
+                <span id="visor-audio-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                <span id="visor-audio-btn-text">🔊 Tap to Enable Phone Sound</span>
+            </button>
+
             <div class="fixed bottom-4 right-4 z-50 flex items-center gap-2">
                 <span id="visor-wakelock-badge" class="px-2.5 py-1.5 rounded-full bg-slate-900/75 border border-emerald-500/30 text-[10px] mono text-emerald-300/90 backdrop-blur-sm">
                     ☀ Wake: Standby
@@ -375,7 +387,28 @@
             if (typeof payload.soundOnRobot === 'boolean' && payload.soundOnRobot !== soundOnRobot) {
                 setSoundOutputMode(payload.soundOnRobot, false);
             }
-            remoteRobotState = { ...remoteRobotState, ...payload };
+            // Keep remoteRobotState synced with incoming payload; when inactive, explicitly clear active & note state
+            if (payload.active) {
+                remoteRobotState = {
+                    ...remoteRobotState,
+                    ...payload,
+                    active: true,
+                    x: typeof payload.x === 'number' ? payload.x : remoteRobotState.x,
+                    y: typeof payload.y === 'number' ? payload.y : remoteRobotState.y,
+                    energy: typeof payload.energy === 'number' ? payload.energy : remoteRobotState.energy,
+                    vibratoActive: Boolean(payload.vibratoActive),
+                    scale: payload.scale || remoteRobotState.scale || 'ionian',
+                    vowel: payload.vowel || remoteRobotState.vowel || 'oo',
+                    mood: payload.mood || remoteRobotState.mood || 'balanced'
+                };
+            } else {
+                remoteRobotState = {
+                    ...remoteRobotState,
+                    ...payload,
+                    active: false,
+                    vibratoActive: false
+                };
+            }
             if (payload.active && (!wasActive || Math.abs((payload.x ?? 0.5) - prevX) > 0.04)) {
                 gMouthPulse = 1.0;
             }
@@ -768,18 +801,107 @@
             const dot = document.getElementById('sound-output-dot');
             const desc = document.getElementById('sound-route-desc');
             const subtitle = document.getElementById('qr-modal-subtitle');
+            const audioBoxText = document.getElementById('robot-audio-status-text');
+            const unlockBtn = document.getElementById('visor-audio-unlock-btn');
+            const unlockBtnText = document.getElementById('visor-audio-btn-text');
+            const unlockDot = document.getElementById('visor-audio-dot');
+
+            const isPhoneAudioReady = Boolean(audioCtx && audioCtx.state === 'running');
 
             if (soundOnRobot) {
                 if (btnText) btnText.textContent = 'Sound: Robot';
                 if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
                 if (desc) desc.textContent = 'Routes reply voice to Phone AUX / Robot';
                 if (subtitle) subtitle.textContent = 'Sound: Robot · Face & voice sync on phone';
+                if (audioBoxText) {
+                    audioBoxText.textContent = isPhoneAudioReady ? 'Phone Audio Unlocked & Ready' : 'Tap Phone Screen to Unlock Sound';
+                    audioBoxText.className = isPhoneAudioReady ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold';
+                }
+                if (unlockBtn) {
+                    if (appRole === 'robot' && !isPhoneAudioReady) {
+                        unlockBtn.classList.remove('hidden');
+                        if (unlockBtnText) unlockBtnText.textContent = '🔊 Tap to Enable Phone Sound';
+                        if (unlockDot) unlockDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
+                    } else if (appRole === 'robot' && isPhoneAudioReady) {
+                        unlockBtn.classList.remove('hidden');
+                        unlockBtn.className = 'fixed top-4 left-4 z-50 px-3 py-1.5 rounded-full bg-emerald-950/75 border border-emerald-400/40 text-[10px] mono font-semibold text-emerald-300 backdrop-blur-sm flex items-center gap-1.5';
+                        if (unlockBtnText) unlockBtnText.textContent = '🔊 Phone Sound: ARMED';
+                        if (unlockDot) unlockDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+                    } else {
+                        unlockBtn.classList.add('hidden');
+                    }
+                }
             } else {
                 if (btnText) btnText.textContent = 'Sound: Laptop';
                 if (dot) dot.className = 'w-2 h-2 rounded-full bg-cyan-400';
                 if (desc) desc.textContent = 'Plays on Laptop speakers';
                 if (subtitle) subtitle.textContent = 'Sound: Laptop · Face syncs on G\'s reply';
+                if (audioBoxText) {
+                    audioBoxText.textContent = 'Laptop Output Active';
+                    audioBoxText.className = 'text-cyan-400 font-semibold';
+                }
+                if (unlockBtn) {
+                    unlockBtn.classList.add('hidden');
+                }
             }
+        }
+
+        function silenceAllLocalSynth(immediate = false) {
+            if (!audioCtx) return;
+            const now = audioCtx.currentTime;
+            const tc = immediate ? 0.002 : 0.015;
+            if (gLiveGain) {
+                if (immediate) {
+                    gLiveGain.gain.cancelScheduledValues(now);
+                    gLiveGain.gain.setValueAtTime(0, now);
+                } else {
+                    gLiveGain.gain.setTargetAtTime(0, now, tc);
+                }
+            }
+            if (breathGainNode) {
+                if (immediate) {
+                    breathGainNode.gain.cancelScheduledValues(now);
+                    breathGainNode.gain.setValueAtTime(0, now);
+                } else {
+                    breathGainNode.gain.setTargetAtTime(0, now, tc);
+                }
+            }
+            voiceBanks.forEach(partials => {
+                partials.forEach(item => {
+                    if (immediate) {
+                        item.gain.gain.cancelScheduledValues(now);
+                        item.gain.gain.setValueAtTime(0, now);
+                    } else {
+                        item.gain.gain.setTargetAtTime(0, now, tc);
+                    }
+                });
+            });
+        }
+
+        async function unlockAndStartPhoneAudio() {
+            initAudio();
+            if (audioCtx && audioCtx.state === 'suspended') {
+                try {
+                    await audioCtx.resume();
+                } catch (e) {}
+            }
+            // Play a brief, ultra-quiet 15ms unlock ping so iOS/Android Safari unlocks the WebAudio output queue cleanly
+            if (audioCtx && audioCtx.state === 'running' && masterGain) {
+                try {
+                    const pingOsc = audioCtx.createOscillator();
+                    const pingGain = audioCtx.createGain();
+                    pingOsc.type = 'sine';
+                    pingOsc.frequency.setValueAtTime(220, audioCtx.currentTime);
+                    pingGain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+                    pingGain.gain.exponentialRampToValueAtTime(0.008, audioCtx.currentTime + 0.005);
+                    pingGain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.025);
+                    pingOsc.connect(pingGain);
+                    pingGain.connect(masterGain);
+                    pingOsc.start(audioCtx.currentTime);
+                    pingOsc.stop(audioCtx.currentTime + 0.03);
+                } catch (e) {}
+            }
+            updateSoundRoutingUI();
         }
 
         function setSoundOutputMode(enableOnRobot, broadcast = true) {
@@ -788,16 +910,12 @@
             updateSoundRoutingUI();
 
             const driveLocalSynth = (appRole === 'controller' && !soundOnRobot) || (appRole === 'robot' && soundOnRobot);
-            if (!driveLocalSynth && audioCtx && audioCtx.state === 'running') {
-                if (gLiveGain) gLiveGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.02);
-                if (breathGainNode) breathGainNode.gain.setTargetAtTime(0.00001, audioCtx.currentTime, 0.02);
-                voiceBanks.forEach(partials => {
-                    partials.forEach(item => item.gain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.02));
-                });
-            } else if (driveLocalSynth) {
+            if (!driveLocalSynth) {
+                silenceAllLocalSynth(true);
+            } else {
                 bindAudioUnlock();
                 if (audioCtx && audioCtx.state === 'suspended') {
-                    audioCtx.resume().catch(() => {});
+                    audioCtx.resume().then(() => updateSoundRoutingUI()).catch(() => {});
                 }
             }
 
@@ -1570,17 +1688,26 @@
                 }
             }
 
-            const isResponding = turnState === 'responding';
+            const isRobotActive = appRole === 'robot' && soundOnRobot && Boolean(remoteRobotState.active);
+            const isResponding = turnState === 'responding' || isRobotActive;
             const isVocalReply = isResponding && lastCallSource === 'vocal';
-            const currentElapsedMs = isResponding ? (timestamp - responseStartTime) : 0;
-            const vibParams = getSingingVibratoState(
-                isResponding,
-                currentElapsedMs,
-                userPhraseEnergy,
-                phraseMood,
-                vibratoSensitivity,
-                isVocalReply
-            );
+            const currentElapsedMs = turnState === 'responding' ? (timestamp - responseStartTime) : Math.floor(timestamp % 2000);
+            const vibParams = isRobotActive
+                ? {
+                    rateHz: 5.5,
+                    depthCents: remoteRobotState.vibratoActive ? 26 * vibratoSensitivity : 0,
+                    ampTremolo: remoteRobotState.vibratoActive ? 0.12 : 0,
+                    active: Boolean(remoteRobotState.vibratoActive),
+                    label: 'Remote Vocal Vibrato'
+                }
+                : getSingingVibratoState(
+                    isResponding,
+                    currentElapsedMs,
+                    userPhraseEnergy,
+                    phraseMood,
+                    vibratoSensitivity,
+                    isVocalReply
+                );
             const unfurlParams = getHarmonicUnfurlState(isResponding, currentElapsedMs);
 
             const humanRateJitter = Math.sin(timestamp * 0.0031) * 0.25;
@@ -1643,129 +1770,213 @@
 
                 const driveLocalSynth = (appRole === 'controller' && !soundOnRobot) || (appRole === 'robot' && soundOnRobot);
                 if (!driveLocalSynth) {
-                    if (gLiveGain) gLiveGain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.02);
-                    if (breathGainNode) breathGainNode.gain.setTargetAtTime(0.00001, audioCtx.currentTime, 0.02);
-                    voiceBanks.forEach(partials => {
-                        partials.forEach(item => item.gain.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.02));
-                    });
+                    silenceAllLocalSynth(false);
+                } else if (appRole === 'robot' && soundOnRobot) {
+                    // On the ?role=robot phone, sound MUST mirror the remote reply state received from the laptop
+                    const remoteActive = Boolean(remoteRobotState.active);
+                    const remoteX = typeof remoteRobotState.x === 'number' ? remoteRobotState.x : 0.5;
+                    const remoteY = typeof remoteRobotState.y === 'number' ? remoteRobotState.y : 0.4;
+                    const remoteEnergy = typeof remoteRobotState.energy === 'number' ? remoteRobotState.energy : 0.5;
+                    const remoteMood = remoteRobotState.mood || 'balanced';
+                    const remoteVowel = remoteRobotState.vowel || 'oo';
+                    const remoteScaleName = remoteRobotState.scale || currentScaleName;
+
+                    if (!remoteActive) {
+                        // Hard silence when G is not actively replying so no lingering hum or drone occurs
+                        silenceAllLocalSynth(false);
+                    } else {
+                        const prevScale = currentScaleName;
+                        currentScaleName = remoteScaleName;
+                        const { semitones } = getScaleChordIntervals(remoteX, remoteY);
+                        currentScaleName = prevScale;
+
+                        const currentRootSemi = semitones[0];
+                        if (currentRootSemi !== lastActiveSemitone) {
+                            harmonicPluckPulse = 1.32;
+                            lastActiveSemitone = currentRootSemi;
+                            gMouthPulse = 1.0;
+                        }
+
+                        const { voiceGains } = getYVoicingProfile(remoteY, false);
+                        const conversationalGainScale = 0.72 + remoteEnergy * 0.52;
+                        const pitchPortamentoSec = getMoodPortamentoSeconds(true, remoteMood, false);
+                        const targetWeights = markovStates[currentStateIndex].weights;
+                        const activeVoicesSum = voiceGains.reduce((acc, g) => acc + g, 0);
+                        const voiceNorm = 1.0 / Math.sqrt(Math.max(1, activeVoicesSum));
+                        const baseTimeConstant = Math.max(0.015, 0.06 - remoteY * 0.03);
+
+                        const rawSine = Math.sin(vibratoPhase * Math.PI * 2);
+                        const vocalWave = rawSine + 0.15 * Math.sin(vibratoPhase * Math.PI * 4);
+                        const currentDetuneCents = (remoteRobotState.vibratoActive ? 26 * (0.6 + remoteEnergy * 0.7) : 0) * vocalWave;
+                        const vocalAmpShimmer = 1.0 + (remoteRobotState.vibratoActive ? 0.12 : 0) * rawSine;
+
+                        if (gLiveOsc && gLiveGain) {
+                            const leadFreq = rootFrequency * Math.pow(2, (semitones[0] || 0) / 12);
+                            gLiveOsc.frequency.setTargetAtTime(leadFreq, audioCtx.currentTime, pitchPortamentoSec);
+                            gLiveOsc.detune.setTargetAtTime(remoteRobotState.vibratoActive ? currentDetuneCents : 0, audioCtx.currentTime, 0.02);
+                            const leadTargetGain = Math.min(0.45, (0.16 + remoteY * 0.22) * conversationalGainScale);
+                            gLiveGain.gain.setTargetAtTime(leadTargetGain, audioCtx.currentTime, 0.02);
+                        }
+
+                        if (breathGainNode && breathFilterNode) {
+                            const activeBreathGain = breathAmount * 0.05 * (0.3 + remoteY * 0.8) * (0.5 + remoteEnergy * 0.8);
+                            breathGainNode.gain.setTargetAtTime(activeBreathGain, audioCtx.currentTime, 0.05);
+                            const breathCenter = remoteVowel === 'oo' ? 750 : (remoteVowel === 'ah' ? 1450 : 1050);
+                            breathFilterNode.frequency.setTargetAtTime(breathCenter + remoteY * 450, audioCtx.currentTime, 0.07);
+                        }
+
+                        voiceBanks.forEach((partials, vIdx) => {
+                            const voiceBaseMultiplier = Math.pow(2, (semitones[vIdx] || 0) / 12);
+                            const voicePresence = voiceGains[vIdx] || 0;
+
+                            partials.forEach((item, hIdx) => {
+                                const baseWeight = targetWeights[hIdx] || 0;
+                                item.osc.detune.setTargetAtTime(remoteRobotState.vibratoActive ? currentDetuneCents * (1 + vIdx * 0.05) : 0, audioCtx.currentTime, 0.02);
+
+                                let altitudeMultiplier = 1.0;
+                                if (hIdx === 0) {
+                                    altitudeMultiplier = 1.2 - remoteY * 0.35;
+                                } else if (hIdx < 4) {
+                                    altitudeMultiplier = 0.25 + remoteY * 0.95;
+                                } else if (hIdx < 8) {
+                                    altitudeMultiplier = Math.max(0, (remoteY - 0.25) * 1.45);
+                                } else {
+                                    altitudeMultiplier = Math.max(0, (remoteY - 0.5) * 2.1);
+                                }
+
+                                if (hIdx >= 6) {
+                                    altitudeMultiplier *= (0.8 + remoteEnergy * 0.9);
+                                }
+
+                                const partialFreqHz = rootFrequency * item.harmonicIndex * voiceBaseMultiplier;
+                                item.osc.frequency.setTargetAtTime(partialFreqHz, audioCtx.currentTime, pitchPortamentoSec);
+
+                                const formantMod = getVocalFormantGain(partialFreqHz, remoteVowel, formantDepth);
+                                const pluckFactor = hIdx > 0 ? harmonicPluckPulse : 1.0;
+                                const baseLevel = hIdx === 0 ? 0.32 : (0.18 / Math.sqrt(item.harmonicIndex));
+                                const excitationLevel = baseLevel * conversationalGainScale * vocalAmpShimmer;
+
+                                const targetGain = baseWeight * altitudeMultiplier * voicePresence * formantMod * pluckFactor * excitationLevel * voiceNorm;
+                                item.gain.gain.setTargetAtTime(Math.max(0, targetGain), audioCtx.currentTime, baseTimeConstant);
+                            });
+                        });
+                    }
                 } else {
                     const isSinging = !isHoldingSingBtn && (isTouching || isResponding);
                     const activeX = isResponding ? companionCoordX : coordX;
                     const activeY = isResponding ? companionCoordY : coordY;
 
-                    const { semitones } = getScaleChordIntervals(activeX, activeY);
-                    const currentRootSemi = semitones[0];
+                    if (!isSinging) {
+                        silenceAllLocalSynth(false);
+                    } else {
+                        const { semitones } = getScaleChordIntervals(activeX, activeY);
+                        const currentRootSemi = semitones[0];
 
-                    if (isSinging && currentRootSemi !== lastActiveSemitone) {
-                        harmonicPluckPulse = 1.32;
-                        lastActiveSemitone = currentRootSemi;
-                        gMouthPulse = 1.0;
-                    }
+                        if (currentRootSemi !== lastActiveSemitone) {
+                            harmonicPluckPulse = 1.32;
+                            lastActiveSemitone = currentRootSemi;
+                            gMouthPulse = 1.0;
+                        }
 
-                    const { voiceGains } = getYVoicingProfile(activeY, isVocalReply);
-                    const conversationalGainScale = isResponding ? (0.7 + companionEnergy * 0.5) : 1.0;
-                    const pitchPortamentoSec = getMoodPortamentoSeconds(isResponding, phraseMood, isVocalReply);
+                        const { voiceGains } = getYVoicingProfile(activeY, isVocalReply);
+                        const conversationalGainScale = isResponding ? (0.7 + companionEnergy * 0.5) : 1.0;
+                        const pitchPortamentoSec = getMoodPortamentoSeconds(isResponding, phraseMood, isVocalReply);
 
-                    const activeFormantVowel = (isVocalReply && currentVowel === 'off') ? 'oo' : currentVowel;
-                    const activeFormantDepth = isVocalReply ? 0.88 : formantDepth;
-                    const registerOctaveShift = isVocalReply ? detectedVocalOctaveShift : 0;
+                        const activeFormantVowel = (isVocalReply && currentVowel === 'off') ? 'oo' : currentVowel;
+                        const activeFormantDepth = isVocalReply ? 0.88 : formantDepth;
+                        const registerOctaveShift = isVocalReply ? detectedVocalOctaveShift : 0;
 
-                    const targetWeights = isVocalReply
-                        ? [1.0, 0.82, 0.56, 0.38, 0.24, 0.14, 0.08, 0.04, 0.02, 0, 0, 0, 0, 0, 0, 0]
-                        : markovStates[currentStateIndex].weights;
-                    const activeVoicesSum = voiceGains.reduce((acc, g) => acc + g, 0);
-                    const voiceNorm = 1.0 / Math.sqrt(Math.max(1, activeVoicesSum));
-                    const baseTimeConstant = isSinging ? (0.065 - activeY * 0.03) : 0.08;
+                        const targetWeights = isVocalReply
+                            ? [1.0, 0.82, 0.56, 0.38, 0.24, 0.14, 0.08, 0.04, 0.02, 0, 0, 0, 0, 0, 0, 0]
+                            : markovStates[currentStateIndex].weights;
+                        const activeVoicesSum = voiceGains.reduce((acc, g) => acc + g, 0);
+                        const voiceNorm = 1.0 / Math.sqrt(Math.max(1, activeVoicesSum));
+                        const baseTimeConstant = 0.065 - activeY * 0.03;
 
-                    const rawSine = Math.sin(vibratoPhase * Math.PI * 2);
-                    const vocalWave = rawSine + 0.15 * Math.sin(vibratoPhase * Math.PI * 4);
-                    const currentDetuneCents = vibParams.depthCents * vocalWave;
-                    const vocalAmpShimmer = 1.0 + vibParams.ampTremolo * rawSine;
+                        const rawSine = Math.sin(vibratoPhase * Math.PI * 2);
+                        const vocalWave = rawSine + 0.15 * Math.sin(vibratoPhase * Math.PI * 4);
+                        const currentDetuneCents = vibParams.depthCents * vocalWave;
+                        const vocalAmpShimmer = 1.0 + vibParams.ampTremolo * rawSine;
 
-                    if (gLiveOsc && gLiveGain) {
-                        const leadSemi = (semitones[0] || 0) + registerOctaveShift;
-                        const leadFreq = rootFrequency * Math.pow(2, leadSemi / 12);
-                        gLiveOsc.frequency.setTargetAtTime(leadFreq, audioCtx.currentTime, pitchPortamentoSec);
-                        gLiveOsc.detune.setTargetAtTime(isSinging && vibParams.active ? currentDetuneCents : 0, audioCtx.currentTime, 0.02);
-                        const leadTargetGain = isSinging
-                            ? Math.min(0.45, (0.16 + activeY * 0.22) * conversationalGainScale)
-                            : 0.0001;
-                        gLiveGain.gain.setTargetAtTime(Math.max(0.0001, leadTargetGain), audioCtx.currentTime, 0.025);
-                    }
+                        if (gLiveOsc && gLiveGain) {
+                            const leadSemi = (semitones[0] || 0) + registerOctaveShift;
+                            const leadFreq = rootFrequency * Math.pow(2, leadSemi / 12);
+                            gLiveOsc.frequency.setTargetAtTime(leadFreq, audioCtx.currentTime, pitchPortamentoSec);
+                            gLiveOsc.detune.setTargetAtTime(vibParams.active ? currentDetuneCents : 0, audioCtx.currentTime, 0.02);
+                            const leadTargetGain = Math.min(0.45, (0.16 + activeY * 0.22) * conversationalGainScale);
+                            gLiveGain.gain.setTargetAtTime(leadTargetGain, audioCtx.currentTime, 0.025);
+                        }
 
-                    if (breathGainNode && breathFilterNode) {
-                        const intakeBreathBoost = (turnState === 'thinking') ? 0.04 : 0;
-                        const energyBreathMultiplier = isResponding ? (0.5 + companionEnergy * 0.8) : 1.0;
-                        const activeBreathGain = isSinging ? (breathAmount * 0.06 * (0.3 + activeY * 0.8) * energyBreathMultiplier) : (intakeBreathBoost * breathAmount);
-                        breathGainNode.gain.setTargetAtTime(Math.max(0.00001, activeBreathGain), audioCtx.currentTime, 0.06);
+                        if (breathGainNode && breathFilterNode) {
+                            const energyBreathMultiplier = isResponding ? (0.5 + companionEnergy * 0.8) : 1.0;
+                            const activeBreathGain = breathAmount * 0.06 * (0.3 + activeY * 0.8) * energyBreathMultiplier;
+                            breathGainNode.gain.setTargetAtTime(activeBreathGain, audioCtx.currentTime, 0.06);
 
-                        const breathCenter = activeFormantVowel === 'oo' ? 750 : (activeFormantVowel === 'ah' ? 1450 : 1050);
-                        breathFilterNode.frequency.setTargetAtTime(breathCenter + activeY * 450, audioCtx.currentTime, 0.08);
-                    }
+                            const breathCenter = activeFormantVowel === 'oo' ? 750 : (activeFormantVowel === 'ah' ? 1450 : 1050);
+                            breathFilterNode.frequency.setTargetAtTime(breathCenter + activeY * 450, audioCtx.currentTime, 0.08);
+                        }
 
-                    voiceBanks.forEach((partials, vIdx) => {
-                        const voiceSemitone = (semitones[vIdx] || 0) + registerOctaveShift;
-                        const voiceBaseMultiplier = Math.pow(2, voiceSemitone / 12);
-                        const unfurlVoiceMult = unfurlParams.active ? unfurlParams.voiceEnvelopes[vIdx] : 1.0;
-                        const rawVoicePresence = voiceGains[vIdx] || 0;
-                        const voicePresence = (unfurlParams.active && rawVoicePresence === 0 && vIdx <= 2)
-                            ? (0.48 * unfurlVoiceMult)
-                            : (rawVoicePresence * unfurlVoiceMult);
-                        const voiceTimeConstant = unfurlParams.active ? 0.014 : baseTimeConstant;
+                        voiceBanks.forEach((partials, vIdx) => {
+                            const voiceSemitone = (semitones[vIdx] || 0) + registerOctaveShift;
+                            const voiceBaseMultiplier = Math.pow(2, voiceSemitone / 12);
+                            const unfurlVoiceMult = unfurlParams.active ? unfurlParams.voiceEnvelopes[vIdx] : 1.0;
+                            const rawVoicePresence = voiceGains[vIdx] || 0;
+                            const voicePresence = (unfurlParams.active && rawVoicePresence === 0 && vIdx <= 2)
+                                ? (0.48 * unfurlVoiceMult)
+                                : (rawVoicePresence * unfurlVoiceMult);
+                            const voiceTimeConstant = unfurlParams.active ? 0.014 : baseTimeConstant;
 
-                        partials.forEach((item, hIdx) => {
-                            const baseWeight = targetWeights[hIdx] || 0;
+                            partials.forEach((item, hIdx) => {
+                                const baseWeight = targetWeights[hIdx] || 0;
 
-                            if (isSinging && vibParams.active) {
-                                item.osc.detune.setTargetAtTime(currentDetuneCents * (1 + vIdx * 0.05), audioCtx.currentTime, 0.02);
-                            } else if (isSinging && breathAmount > 0.02) {
-                                const subtleBreathDetune = breathAmount * 1.4 * Math.sin(vibratoPhase * Math.PI * 2);
-                                item.osc.detune.setTargetAtTime(subtleBreathDetune * (1 + vIdx * 0.1), audioCtx.currentTime, 0.04);
-                            } else {
-                                item.osc.detune.setTargetAtTime(0, audioCtx.currentTime, 0.04);
-                            }
-
-                            let altitudeMultiplier = 1.0;
-                            if (hIdx === 0) {
-                                altitudeMultiplier = 1.2 - activeY * 0.35;
-                            } else if (hIdx < 4) {
-                                altitudeMultiplier = 0.25 + activeY * 0.95;
-                            } else if (hIdx < 8) {
-                                altitudeMultiplier = Math.max(0, (activeY - 0.25) * 1.45);
-                            } else {
-                                altitudeMultiplier = Math.max(0, (activeY - 0.5) * 2.1);
-                            }
-
-                            if (isResponding && !isVocalReply && hIdx >= 6) {
-                                altitudeMultiplier *= (0.8 + companionEnergy * 0.9);
-                            }
-
-                            let overtoneShuffleMult = 1.0;
-                            if (unfurlParams.active && hIdx > 0) {
-                                const partialDelayMs = hIdx * 14;
-                                if (unfurlParams.elapsedInUnfurl < partialDelayMs) {
-                                    overtoneShuffleMult = 0.15;
+                                if (vibParams.active) {
+                                    item.osc.detune.setTargetAtTime(currentDetuneCents * (1 + vIdx * 0.05), audioCtx.currentTime, 0.02);
+                                } else if (breathAmount > 0.02) {
+                                    const subtleBreathDetune = breathAmount * 1.4 * Math.sin(vibratoPhase * Math.PI * 2);
+                                    item.osc.detune.setTargetAtTime(subtleBreathDetune * (1 + vIdx * 0.1), audioCtx.currentTime, 0.04);
                                 } else {
-                                    const overtoneAge = unfurlParams.elapsedInUnfurl - partialDelayMs;
-                                    overtoneShuffleMult = 1.0 + Math.exp(-overtoneAge / 85) * 0.55;
+                                    item.osc.detune.setTargetAtTime(0, audioCtx.currentTime, 0.04);
                                 }
-                            }
 
-                            const partialFreqHz = rootFrequency * item.harmonicIndex * voiceBaseMultiplier;
-                            item.osc.frequency.setTargetAtTime(partialFreqHz, audioCtx.currentTime, pitchPortamentoSec);
+                                let altitudeMultiplier = 1.0;
+                                if (hIdx === 0) {
+                                    altitudeMultiplier = 1.2 - activeY * 0.35;
+                                } else if (hIdx < 4) {
+                                    altitudeMultiplier = 0.25 + activeY * 0.95;
+                                } else if (hIdx < 8) {
+                                    altitudeMultiplier = Math.max(0, (activeY - 0.25) * 1.45);
+                                } else {
+                                    altitudeMultiplier = Math.max(0, (activeY - 0.5) * 2.1);
+                                }
 
-                            const formantMod = getVocalFormantGain(partialFreqHz, activeFormantVowel, activeFormantDepth);
-                            const pluckFactor = hIdx > 0 ? harmonicPluckPulse : 1.0;
-                            const baseLevel = hIdx === 0 ? 0.32 : (0.18 / Math.sqrt(item.harmonicIndex));
-                            const excitationLevel = isSinging ? (baseLevel * conversationalGainScale * vocalAmpShimmer) : 0.0001;
+                                if (isResponding && !isVocalReply && hIdx >= 6) {
+                                    altitudeMultiplier *= (0.8 + companionEnergy * 0.9);
+                                }
 
-                            const targetGain = isSinging
-                                ? (baseWeight * altitudeMultiplier * voicePresence * formantMod * pluckFactor * overtoneShuffleMult * excitationLevel * voiceNorm)
-                                : 0.0001;
+                                let overtoneShuffleMult = 1.0;
+                                if (unfurlParams.active && hIdx > 0) {
+                                    const partialDelayMs = hIdx * 14;
+                                    if (unfurlParams.elapsedInUnfurl < partialDelayMs) {
+                                        overtoneShuffleMult = 0.15;
+                                    } else {
+                                        const overtoneAge = unfurlParams.elapsedInUnfurl - partialDelayMs;
+                                        overtoneShuffleMult = 1.0 + Math.exp(-overtoneAge / 85) * 0.55;
+                                    }
+                                }
 
-                            item.gain.gain.setTargetAtTime(Math.max(0.0001, targetGain), audioCtx.currentTime, voiceTimeConstant);
+                                const partialFreqHz = rootFrequency * item.harmonicIndex * voiceBaseMultiplier;
+                                item.osc.frequency.setTargetAtTime(partialFreqHz, audioCtx.currentTime, pitchPortamentoSec);
+
+                                const formantMod = getVocalFormantGain(partialFreqHz, activeFormantVowel, activeFormantDepth);
+                                const pluckFactor = hIdx > 0 ? harmonicPluckPulse : 1.0;
+                                const baseLevel = hIdx === 0 ? 0.32 : (0.18 / Math.sqrt(item.harmonicIndex));
+                                const excitationLevel = baseLevel * conversationalGainScale * vocalAmpShimmer;
+
+                                const targetGain = baseWeight * altitudeMultiplier * voicePresence * formantMod * pluckFactor * overtoneShuffleMult * excitationLevel * voiceNorm;
+                                item.gain.gain.setTargetAtTime(Math.max(0, targetGain), audioCtx.currentTime, voiceTimeConstant);
+                            });
                         });
-                    });
+                    }
                 }
             }
 
@@ -2536,18 +2747,9 @@
             const visorOverlay = document.getElementById('robot-visor-overlay');
             visorOverlay?.classList.remove('hidden');
             const fsBtn = document.getElementById('visor-fullscreen-btn');
+            const audioUnlockBtn = document.getElementById('visor-audio-unlock-btn');
             const wakeBadge = document.getElementById('visor-wakelock-badge');
             let wakeLockSentinel = null;
-
-            const lockHorizontalOrientation = async () => {
-                try {
-                    if (screen.orientation && typeof screen.orientation.lock === 'function') {
-                        await screen.orientation.lock('landscape');
-                    }
-                } catch (err) {
-                    // CSS 90deg fallback remains active when browser lock is unsupported
-                }
-            };
 
             const updateWakeBadge = (label, active) => {
                 if (!wakeBadge) return;
@@ -2580,6 +2782,26 @@
                     updateWakeBadge('☀ Wake: Tap Screen', false);
                 }
             };
+
+            const lockHorizontalOrientation = async () => {
+                try {
+                    if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                        await screen.orientation.lock('landscape');
+                    }
+                } catch (err) {
+                    // CSS @media (orientation: portrait) handles visual rotation when lock is restricted
+                }
+            };
+
+            const unlockPhoneSynth = async () => {
+                await unlockAndStartPhoneAudio();
+            };
+
+            audioUnlockBtn?.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                await requestScreenWakeLock();
+                await unlockPhoneSynth();
+            });
 
             const enterVisorFullscreen = async () => {
                 try {
@@ -2624,10 +2846,7 @@
             visorOverlay?.addEventListener('pointerdown', async () => {
                 await requestScreenWakeLock();
                 if (soundOnRobot) {
-                    initAudio();
-                    if (audioCtx && audioCtx.state === 'suspended') {
-                        audioCtx.resume().catch(() => {});
-                    }
+                    await unlockAndStartPhoneAudio();
                 }
             }, { passive: true });
 
