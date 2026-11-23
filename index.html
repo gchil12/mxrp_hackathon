@@ -70,6 +70,10 @@
                 <span id="sb-status-dot" class="w-2 h-2 rounded-full bg-amber-400"></span>
                 <span id="link-robot-btn-text">Link Robot (QR)</span>
             </button>
+            <button id="header-sound-route-btn" type="button" class="px-3.5 py-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-200 font-semibold text-xs tracking-wide hover:bg-slate-800 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5">
+                <span id="header-sound-dot" class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                <span id="header-sound-btn-text">Sound: Laptop</span>
+            </button>
             <button id="mic-toggle-btn" type="button" class="px-4 py-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 font-semibold text-xs tracking-wide hover:bg-slate-800 active:scale-95 transition-all cursor-pointer flex items-center gap-2">
                 <span id="mic-dot" class="w-2 h-2 rounded-full bg-slate-500"></span>
                 <span id="mic-btn-text">Mic Input: OFF</span>
@@ -387,35 +391,24 @@
             if (typeof payload.soundOnRobot === 'boolean' && payload.soundOnRobot !== soundOnRobot) {
                 setSoundOutputMode(payload.soundOnRobot, false);
             }
-            // Keep remoteRobotState synced with incoming payload; track both call (user singing/touching) and reply states
-            const isCallPlaying = Boolean(payload.callActive);
             const isReplyPlaying = Boolean(payload.active);
-            const isAnySoundPlaying = isReplyPlaying || isCallPlaying;
+            const isCallPlaying = Boolean(payload.callActive);
 
-            if (isAnySoundPlaying) {
-                remoteRobotState = {
-                    ...remoteRobotState,
-                    ...payload,
-                    active: isReplyPlaying,
-                    callActive: isCallPlaying,
-                    x: typeof payload.x === 'number' ? payload.x : remoteRobotState.x,
-                    y: typeof payload.y === 'number' ? payload.y : remoteRobotState.y,
-                    energy: typeof payload.energy === 'number' ? payload.energy : remoteRobotState.energy,
-                    vibratoActive: Boolean(payload.vibratoActive),
-                    scale: payload.scale || remoteRobotState.scale || 'ionian',
-                    vowel: payload.vowel || remoteRobotState.vowel || 'oo',
-                    mood: payload.mood || remoteRobotState.mood || 'balanced'
-                };
-            } else {
-                remoteRobotState = {
-                    ...remoteRobotState,
-                    ...payload,
-                    active: false,
-                    callActive: false,
-                    vibratoActive: false
-                };
-            }
-            if (payload.active && (!wasActive || Math.abs((payload.x ?? 0.5) - prevX) > 0.04)) {
+            remoteRobotState = {
+                ...remoteRobotState,
+                ...payload,
+                active: isReplyPlaying,
+                callActive: isCallPlaying,
+                x: typeof payload.x === 'number' ? payload.x : remoteRobotState.x,
+                y: typeof payload.y === 'number' ? payload.y : remoteRobotState.y,
+                energy: typeof payload.energy === 'number' ? payload.energy : remoteRobotState.energy,
+                vibratoActive: isReplyPlaying ? Boolean(payload.vibratoActive) : false,
+                scale: payload.scale || remoteRobotState.scale || 'ionian',
+                vowel: payload.vowel || remoteRobotState.vowel || 'oo',
+                mood: payload.mood || remoteRobotState.mood || 'balanced'
+            };
+
+            if (isReplyPlaying && (!wasActive || Math.abs((payload.x ?? 0.5) - prevX) > 0.04)) {
                 gMouthPulse = 1.0;
             }
         }
@@ -726,9 +719,10 @@
                     gLiveOsc.start();
 
                     voiceBanks = [];
+                    const maxPartialsPerVoice = (appRole === 'robot') ? 6 : 16;
                     for (let v = 0; v < 4; v++) {
                         const partials = [];
-                        for (let h = 1; h <= 16; h++) {
+                        for (let h = 1; h <= maxPartialsPerVoice; h++) {
                             const osc = audioCtx.createOscillator();
                             osc.type = (h === 1) ? 'sine' : (h % 2 === 0 ? 'triangle' : 'sine');
                             osc.frequency.setValueAtTime(rootFrequency * h, audioCtx.currentTime);
@@ -800,6 +794,8 @@
         function updateSoundRoutingUI() {
             const btnText = document.getElementById('sound-output-btn-text');
             const dot = document.getElementById('sound-output-dot');
+            const headerBtnText = document.getElementById('header-sound-btn-text');
+            const headerDot = document.getElementById('header-sound-dot');
             const desc = document.getElementById('sound-route-desc');
             const subtitle = document.getElementById('qr-modal-subtitle');
             const audioBoxText = document.getElementById('robot-audio-status-text');
@@ -812,6 +808,8 @@
             if (soundOnRobot) {
                 if (btnText) btnText.textContent = 'Sound: Robot';
                 if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+                if (headerBtnText) headerBtnText.textContent = 'Sound: Robot';
+                if (headerDot) headerDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
                 if (desc) desc.textContent = 'Call plays on Laptop · G\'s reply plays on Robot';
                 if (subtitle) subtitle.textContent = 'Sound: Robot · Call on laptop, G\'s reply on phone';
                 if (audioBoxText) {
@@ -835,7 +833,9 @@
             } else {
                 if (btnText) btnText.textContent = 'Sound: Laptop';
                 if (dot) dot.className = 'w-2 h-2 rounded-full bg-cyan-400';
-                if (desc) desc.textContent = 'Plays on Laptop speakers';
+                if (headerBtnText) headerBtnText.textContent = 'Sound: Laptop';
+                if (headerDot) headerDot.className = 'w-2 h-2 rounded-full bg-cyan-400';
+                if (desc) desc.textContent = 'Call & reply both play on Laptop';
                 if (subtitle) subtitle.textContent = 'Sound: Laptop · Face syncs on G\'s reply';
                 if (audioBoxText) {
                     audioBoxText.textContent = 'Laptop Output Active';
@@ -898,37 +898,40 @@
                     pingGain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.025);
                     pingOsc.connect(pingGain);
                     pingGain.connect(masterGain);
-                    pingOsc.start(audioCtx.currentTime);
+                    pingOsc.start();
                     pingOsc.stop(audioCtx.currentTime + 0.03);
                 } catch (e) {}
             }
             updateSoundRoutingUI();
         }
 
-        function setSoundOutputMode(enableOnRobot, broadcast = true) {
-            soundOnRobot = Boolean(enableOnRobot);
+        function setSoundOutputMode(nextSoundOnRobot, broadcastChange = true) {
+            soundOnRobot = Boolean(nextSoundOnRobot);
             remoteRobotState.soundOnRobot = soundOnRobot;
-            updateSoundRoutingUI();
 
-            // Laptop always plays the user's call; when Sound: Robot is ON, G's reply plays on the phone instead of the laptop
-            bindAudioUnlock();
             if (appRole === 'robot' && !soundOnRobot) {
                 silenceAllLocalSynth(true);
-            } else if (audioCtx && audioCtx.state === 'suspended') {
-                audioCtx.resume().then(() => updateSoundRoutingUI()).catch(() => {});
+            }
+            if (appRole === 'controller' && soundOnRobot && turnState === 'responding') {
+                silenceAllLocalSynth(true);
             }
 
-            if (broadcast && appRole === 'controller') {
-                const isUserCalling = !isHoldingSingBtn && isTouching;
+            if (appRole === 'robot' && soundOnRobot) {
+                bindAudioUnlock();
+            }
+
+            updateSoundRoutingUI();
+
+            if (broadcastChange && appRole === 'controller') {
                 emitFaceSyncPayload({
                     active: turnState === 'responding',
-                    callActive: isUserCalling,
-                    x: isUserCalling ? coordX : companionCoordX,
-                    y: isUserCalling ? coordY : companionCoordY,
+                    callActive: !isHoldingSingBtn && isTouching,
+                    x: turnState === 'responding' ? companionCoordX : coordX,
+                    y: turnState === 'responding' ? companionCoordY : coordY,
                     scale: currentScaleName,
                     vowel: (lastCallSource === 'vocal' && currentVowel === 'off') ? 'oo' : currentVowel,
                     mood: phraseMood,
-                    energy: isUserCalling ? Math.max(0.35, coordY) : companionEnergy,
+                    energy: turnState === 'responding' ? companionEnergy : Math.max(0.35, coordY),
                     vibratoActive: false,
                     soundOnRobot: soundOnRobot
                 });
@@ -945,7 +948,7 @@
             if (!isMicEnabled) {
                 try {
                     micStream = await navigator.mediaDevices.getUserMedia({
-                        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }
+                        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false }
                     });
                     const source = audioCtx.createMediaStreamSource(micStream);
                     micAnalyser = audioCtx.createAnalyser();
@@ -954,10 +957,10 @@
                     source.connect(micAnalyser);
 
                     isMicEnabled = true;
-                    micDot.className = 'w-2 h-2 rounded-full bg-rose-500 animate-ping';
-                    micText.textContent = 'Mic Input: ON';
-                    micBtn.className = 'px-4 py-2 rounded-xl border border-rose-500 bg-rose-500/20 text-rose-300 font-semibold text-xs tracking-wide transition-all cursor-pointer flex items-center gap-2';
-                    telemetry.classList.remove('hidden');
+                    if (micDot) micDot.className = 'w-2 h-2 rounded-full bg-rose-500 animate-ping';
+                    if (micText) micText.textContent = 'Mic Input: ON';
+                    if (micBtn) micBtn.className = 'px-4 py-2 rounded-xl border border-rose-500 bg-rose-500/20 text-rose-300 font-semibold text-xs tracking-wide transition-all cursor-pointer flex items-center gap-2';
+                    telemetry?.classList.remove('hidden');
                 } catch (err) {
                     const fbEl = document.getElementById('intonation-feedback');
                     if (fbEl) fbEl.textContent = 'Microphone access unavailable';
@@ -969,59 +972,130 @@
                 }
                 isMicEnabled = false;
                 micAnalyser = null;
-                micDot.className = 'w-2 h-2 rounded-full bg-slate-500';
-                micText.textContent = 'Mic Input: OFF';
-                micBtn.className = 'px-4 py-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 font-semibold text-xs tracking-wide hover:bg-slate-800 active:scale-95 transition-all cursor-pointer flex items-center gap-2';
-                telemetry.classList.add('hidden');
+                recentPitchHistory = [];
+                smoothedVocalFreq = 0;
+                if (micDot) micDot.className = 'w-2 h-2 rounded-full bg-slate-500';
+                if (micText) micText.textContent = 'Mic Input: OFF';
+                if (micBtn) micBtn.className = 'px-4 py-2 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 font-semibold text-xs tracking-wide hover:bg-slate-800 active:scale-95 transition-all cursor-pointer flex items-center gap-2';
+                telemetry?.classList.add('hidden');
             }
         }
+
+        let recentPitchHistory = [];
+        let smoothedVocalFreq = 0;
 
         function detectVocalPitchAndEnergy() {
             if (!isMicEnabled || !micAnalyser || !micDataArray) return null;
             micAnalyser.getFloatTimeDomainData(micDataArray);
 
+            const bufLen = micDataArray.length;
+            let mean = 0;
+            for (let i = 0; i < bufLen; i++) {
+                mean += micDataArray[i];
+            }
+            mean /= bufLen;
+
             let sumSquares = 0;
-            for (let i = 0; i < micDataArray.length; i++) {
-                sumSquares += micDataArray[i] * micDataArray[i];
+            for (let i = 0; i < bufLen; i++) {
+                const centered = micDataArray[i] - mean;
+                sumSquares += centered * centered;
             }
-            const rms = Math.sqrt(sumSquares / micDataArray.length);
-            if (rms < 0.015) return null;
-
-            let r1 = 0, r2 = micDataArray.length - 1;
-            const threshold = 0.08;
-            for (let i = 0; i < micDataArray.length / 2; i++) {
-                if (Math.abs(micDataArray[i]) < threshold) { r1 = i; break; }
-            }
-            for (let i = 1; i < micDataArray.length / 2; i++) {
-                if (Math.abs(micDataArray[micDataArray.length - i]) < threshold) { r2 = micDataArray.length - i; break; }
+            const rms = Math.sqrt(sumSquares / bufLen);
+            if (rms < 0.018) {
+                recentPitchHistory = [];
+                smoothedVocalFreq = 0;
+                return null;
             }
 
-            const trimmed = micDataArray.slice(r1, r2);
-            const len = trimmed.length;
-            if (len < 32) return null;
+            const sampleRate = audioCtx.sampleRate;
+            const minLag = Math.max(20, Math.floor(sampleRate / 950));
+            const maxLag = Math.min(Math.floor(bufLen * 0.5), Math.floor(sampleRate / 70));
+            const windowSize = bufLen - maxLag;
+            if (windowSize < 256) return null;
 
-            const c = new Float32Array(len);
-            for (let i = 0; i < len; i++) {
-                for (let j = 0; j < len - i; j++) {
-                    c[i] += trimmed[j] * trimmed[j + i];
+            // Compute normalized autocorrelation across vocal lag range (70 Hz - 950 Hz)
+            const normCorr = new Float32Array(maxLag + 1);
+            let refEnergy = 0;
+            for (let j = 0; j < windowSize; j++) {
+                const s0 = micDataArray[j] - mean;
+                refEnergy += s0 * s0;
+            }
+            if (refEnergy <= 1e-7) return null;
+
+            for (let lag = minLag; lag <= maxLag; lag++) {
+                let cross = 0;
+                let lagEnergy = 0;
+                for (let j = 0; j < windowSize; j++) {
+                    const s0 = micDataArray[j] - mean;
+                    const s1 = micDataArray[j + lag] - mean;
+                    cross += s0 * s1;
+                    lagEnergy += s1 * s1;
+                }
+                const denom = Math.sqrt(refEnergy * lagEnergy);
+                normCorr[lag] = denom > 1e-7 ? (cross / denom) : 0;
+            }
+
+            // Collect local correlation peaks above voicing clarity threshold
+            const peaks = [];
+            let globalBest = 0;
+            for (let lag = minLag + 1; lag < maxLag - 1; lag++) {
+                const v = normCorr[lag];
+                if (v > globalBest) globalBest = v;
+                if (v > 0.55 && v >= normCorr[lag - 1] && v >= normCorr[lag + 1]) {
+                    peaks.push({ lag, val: v });
                 }
             }
 
-            let d = 0;
-            while (d < len - 1 && c[d] > c[d + 1]) d++;
-            let maxVal = -1, maxPos = -1;
-            for (let i = d; i < len; i++) {
-                if (c[i] > maxVal) {
-                    maxVal = c[i];
-                    maxPos = i;
+            // Reject unvoiced breath/room noise lacking strong periodicity
+            if (peaks.length === 0 || globalBest < 0.62) {
+                return null;
+            }
+
+            // Prefer the earliest strong peak (>= 86% of global max) to prevent octave-down subharmonic jumps
+            const clarityFloor = Math.max(0.58, globalBest * 0.86);
+            let chosenPeak = peaks[0];
+            for (let i = 0; i < peaks.length; i++) {
+                if (peaks[i].val >= clarityFloor) {
+                    chosenPeak = peaks[i];
+                    break;
                 }
             }
 
-            if (maxPos <= 0) return null;
-            const freq = audioCtx.sampleRate / maxPos;
-            if (freq < 65 || freq > 1100) return null;
+            // Guard against sudden upward octave jumps when the fundamental peak (2x lag) is also strong
+            if (smoothedVocalFreq > 0) {
+                const prevLag = sampleRate / smoothedVocalFreq;
+                if (Math.abs(chosenPeak.lag - prevLag * 0.5) < prevLag * 0.08) {
+                    const octaveDownLag = Math.round(chosenPeak.lag * 2);
+                    if (octaveDownLag <= maxLag && normCorr[octaveDownLag] >= globalBest * 0.72) {
+                        chosenPeak = { lag: octaveDownLag, val: normCorr[octaveDownLag] };
+                    }
+                }
+            }
 
-            return { freq, rms };
+            // Parabolic interpolation around the chosen lag for sub-sample frequency precision
+            const lag = chosenPeak.lag;
+            const y0 = normCorr[lag - 1];
+            const y1 = normCorr[lag];
+            const y2 = normCorr[lag + 1];
+            const denom = y0 - 2 * y1 + y2;
+            const delta = Math.abs(denom) > 1e-6 ? Math.max(-0.5, Math.min(0.5, 0.5 * (y0 - y2) / denom)) : 0;
+            const refinedLag = lag + delta;
+            const rawFreq = sampleRate / refinedLag;
+            if (rawFreq < 70 || rawFreq > 950) return null;
+
+            // 3-frame median filter + gentle glide smoothing to eliminate vibrato/slide jitter
+            recentPitchHistory.push(rawFreq);
+            if (recentPitchHistory.length > 3) recentPitchHistory.shift();
+            const sorted = [...recentPitchHistory].sort((a, b) => a - b);
+            const medianFreq = sorted[Math.floor(sorted.length / 2)];
+
+            if (smoothedVocalFreq <= 0 || Math.abs(12 * Math.log2(medianFreq / smoothedVocalFreq)) > 7) {
+                smoothedVocalFreq = medianFreq;
+            } else {
+                smoothedVocalFreq = smoothedVocalFreq + (medianFreq - smoothedVocalFreq) * 0.48;
+            }
+
+            return { freq: smoothedVocalFreq, rms };
         }
 
         function translateFrequencyToTonalMap(freq, rms) {
@@ -1770,7 +1844,7 @@
                 }
 
                 if (appRole === 'robot') {
-                    // Phone (Robot) plays ONLY G's response when Sound: Robot is active; call stays on the laptop
+                    // Phone (Robot) plays ONLY G's response when Sound: Robot is ON; user calls stay on Laptop
                     const remoteReplyActive = soundOnRobot && Boolean(remoteRobotState.active);
                     const remoteX = typeof remoteRobotState.x === 'number' ? remoteRobotState.x : 0.5;
                     const remoteY = typeof remoteRobotState.y === 'number' ? remoteRobotState.y : 0.4;
@@ -1841,16 +1915,12 @@
                                     altitudeMultiplier = Math.max(0, (remoteY - 0.5) * 2.1);
                                 }
 
-                                if (hIdx >= 6) {
-                                    altitudeMultiplier *= (0.8 + remoteEnergy * 0.9);
-                                }
-
                                 const partialFreqHz = rootFrequency * item.harmonicIndex * voiceBaseMultiplier;
                                 item.osc.frequency.setTargetAtTime(partialFreqHz, audioCtx.currentTime, pitchPortamentoSec);
 
                                 const formantMod = getVocalFormantGain(partialFreqHz, remoteVowel, formantDepth);
                                 const pluckFactor = hIdx > 0 ? harmonicPluckPulse : 1.0;
-                                const baseLevel = hIdx === 0 ? 0.32 : (0.18 / Math.sqrt(item.harmonicIndex));
+                                const baseLevel = hIdx === 0 ? 0.34 : (0.16 / Math.sqrt(item.harmonicIndex));
                                 const excitationLevel = baseLevel * conversationalGainScale * vocalAmpShimmer;
 
                                 const targetGain = baseWeight * altitudeMultiplier * voicePresence * formantMod * pluckFactor * excitationLevel * voiceNorm;
@@ -1859,13 +1929,16 @@
                         });
                     }
                 } else {
-                    // Laptop (Controller): plays the user's call, and plays G's response ONLY when Sound: Laptop is active
-                    const playResponseOnLaptop = !soundOnRobot && isResponding;
-                    const isSinging = !isHoldingSingBtn && (isTouching || playResponseOnLaptop);
+                    // Laptop (Controller):
+                    // - Always plays the user's call while touching the pad (!isHoldingSingBtn && isTouching)
+                    // - Plays G's response ONLY when Sound: Laptop (!soundOnRobot) is selected
+                    const isUserCallingOnPad = !isHoldingSingBtn && isTouching;
+                    const playResponseOnLaptop = !soundOnRobot && (turnState === 'responding');
+                    const isSingingOnLaptop = isUserCallingOnPad || playResponseOnLaptop;
                     const activeX = playResponseOnLaptop ? companionCoordX : coordX;
                     const activeY = playResponseOnLaptop ? companionCoordY : coordY;
 
-                    if (!isSinging) {
+                    if (!isSingingOnLaptop) {
                         silenceAllLocalSynth(false);
                     } else {
                         const { semitones } = getScaleChordIntervals(activeX, activeY);
@@ -1981,21 +2054,18 @@
 
             if (appRole === 'controller' && (timestamp - lastBroadcastTime > 28)) {
                 lastBroadcastTime = timestamp;
-                const answerPhraseActive = Boolean(isResponding);
-                const userCallActive = !isHoldingSingBtn && isTouching;
-                const syncX = userCallActive ? coordX : companionCoordX;
-                const syncY = userCallActive ? coordY : companionCoordY;
-                const syncEnergy = userCallActive ? Math.max(0.35, coordY) : companionEnergy;
+                const answerPhraseActive = (turnState === 'responding');
+                const userCallActive = (!isHoldingSingBtn && isTouching);
                 emitFaceSyncPayload({
                     active: answerPhraseActive,
                     callActive: userCallActive,
-                    x: syncX,
-                    y: syncY,
+                    x: answerPhraseActive ? companionCoordX : coordX,
+                    y: answerPhraseActive ? companionCoordY : coordY,
                     scale: currentScaleName,
                     vowel: (lastCallSource === 'vocal' && currentVowel === 'off') ? 'oo' : currentVowel,
                     mood: phraseMood,
-                    energy: syncEnergy,
-                    vibratoActive: vibParams.active,
+                    energy: answerPhraseActive ? companionEnergy : Math.max(0.35, coordY),
+                    vibratoActive: answerPhraseActive ? vibParams.active : false,
                     soundOnRobot: soundOnRobot
                 });
             }
@@ -2534,10 +2604,12 @@
 
         document.getElementById('start-audio-btn')?.addEventListener('click', initAudio);
         document.getElementById('mic-toggle-btn')?.addEventListener('click', toggleMicrophone);
-        document.getElementById('sound-output-toggle-btn')?.addEventListener('click', () => {
+        const toggleSoundRouting = () => {
             setSoundOutputMode(!soundOnRobot, true);
             refreshQrModalDisplay();
-        });
+        };
+        document.getElementById('sound-output-toggle-btn')?.addEventListener('click', toggleSoundRouting);
+        document.getElementById('header-sound-route-btn')?.addEventListener('click', toggleSoundRouting);
 
         document.querySelectorAll('.reply-style-btn').forEach(btn => {
             btn.addEventListener('click', () => {
