@@ -812,8 +812,8 @@
             if (soundOnRobot) {
                 if (btnText) btnText.textContent = 'Sound: Robot';
                 if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
-                if (desc) desc.textContent = 'Routes reply voice to Phone AUX / Robot';
-                if (subtitle) subtitle.textContent = 'Sound: Robot · Face & voice sync on phone';
+                if (desc) desc.textContent = 'Call plays on Laptop · G\'s reply plays on Robot';
+                if (subtitle) subtitle.textContent = 'Sound: Robot · Call on laptop, G\'s reply on phone';
                 if (audioBoxText) {
                     audioBoxText.textContent = isPhoneAudioReady ? 'Phone Audio Unlocked & Ready' : 'Tap Phone Screen to Unlock Sound';
                     audioBoxText.className = isPhoneAudioReady ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold';
@@ -910,14 +910,12 @@
             remoteRobotState.soundOnRobot = soundOnRobot;
             updateSoundRoutingUI();
 
-            const driveLocalSynth = (appRole === 'controller' && !soundOnRobot) || (appRole === 'robot' && soundOnRobot);
-            if (!driveLocalSynth) {
+            // Laptop always plays the user's call; when Sound: Robot is ON, G's reply plays on the phone instead of the laptop
+            bindAudioUnlock();
+            if (appRole === 'robot' && !soundOnRobot) {
                 silenceAllLocalSynth(true);
-            } else {
-                bindAudioUnlock();
-                if (audioCtx && audioCtx.state === 'suspended') {
-                    audioCtx.resume().then(() => updateSoundRoutingUI()).catch(() => {});
-                }
+            } else if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume().then(() => updateSoundRoutingUI()).catch(() => {});
             }
 
             if (broadcast && appRole === 'controller') {
@@ -1771,14 +1769,9 @@
                     stepMarkovChain();
                 }
 
-                const driveLocalSynth = (appRole === 'controller' && !soundOnRobot) || (appRole === 'robot' && soundOnRobot);
-                if (!driveLocalSynth) {
-                    silenceAllLocalSynth(false);
-                } else if (appRole === 'robot' && soundOnRobot) {
-                    // On the ?role=robot phone, play both G's reply AND the user's call so all sound comes from one source
-                    const remoteReplyActive = Boolean(remoteRobotState.active);
-                    const remoteCallActive = Boolean(remoteRobotState.callActive);
-                    const remoteActive = remoteReplyActive || remoteCallActive;
+                if (appRole === 'robot') {
+                    // Phone (Robot) plays ONLY G's response when Sound: Robot is active; call stays on the laptop
+                    const remoteReplyActive = soundOnRobot && Boolean(remoteRobotState.active);
                     const remoteX = typeof remoteRobotState.x === 'number' ? remoteRobotState.x : 0.5;
                     const remoteY = typeof remoteRobotState.y === 'number' ? remoteRobotState.y : 0.4;
                     const remoteEnergy = typeof remoteRobotState.energy === 'number' ? remoteRobotState.energy : 0.5;
@@ -1786,8 +1779,7 @@
                     const remoteVowel = remoteRobotState.vowel || 'oo';
                     const remoteScaleName = remoteRobotState.scale || currentScaleName;
 
-                    if (!remoteActive) {
-                        // Hard silence when neither call nor reply is active
+                    if (!remoteReplyActive) {
                         silenceAllLocalSynth(false);
                     } else {
                         const prevScale = currentScaleName;
@@ -1803,8 +1795,8 @@
                         }
 
                         const { voiceGains } = getYVoicingProfile(remoteY, false);
-                        const conversationalGainScale = remoteReplyActive ? (0.72 + remoteEnergy * 0.52) : 0.92;
-                        const pitchPortamentoSec = remoteReplyActive ? getMoodPortamentoSeconds(true, remoteMood, false) : 0.012;
+                        const conversationalGainScale = 0.72 + remoteEnergy * 0.52;
+                        const pitchPortamentoSec = getMoodPortamentoSeconds(true, remoteMood, false);
                         const targetWeights = markovStates[currentStateIndex].weights;
                         const activeVoicesSum = voiceGains.reduce((acc, g) => acc + g, 0);
                         const voiceNorm = 1.0 / Math.sqrt(Math.max(1, activeVoicesSum));
@@ -1867,9 +1859,11 @@
                         });
                     }
                 } else {
-                    const isSinging = !isHoldingSingBtn && (isTouching || isResponding);
-                    const activeX = isResponding ? companionCoordX : coordX;
-                    const activeY = isResponding ? companionCoordY : coordY;
+                    // Laptop (Controller): plays the user's call, and plays G's response ONLY when Sound: Laptop is active
+                    const playResponseOnLaptop = !soundOnRobot && isResponding;
+                    const isSinging = !isHoldingSingBtn && (isTouching || playResponseOnLaptop);
+                    const activeX = playResponseOnLaptop ? companionCoordX : coordX;
+                    const activeY = playResponseOnLaptop ? companionCoordY : coordY;
 
                     if (!isSinging) {
                         silenceAllLocalSynth(false);
@@ -1883,15 +1877,15 @@
                             gMouthPulse = 1.0;
                         }
 
-                        const { voiceGains } = getYVoicingProfile(activeY, isVocalReply);
-                        const conversationalGainScale = isResponding ? (0.7 + companionEnergy * 0.5) : 1.0;
-                        const pitchPortamentoSec = getMoodPortamentoSeconds(isResponding, phraseMood, isVocalReply);
+                        const { voiceGains } = getYVoicingProfile(activeY, playResponseOnLaptop && isVocalReply);
+                        const conversationalGainScale = playResponseOnLaptop ? (0.7 + companionEnergy * 0.5) : 1.0;
+                        const pitchPortamentoSec = getMoodPortamentoSeconds(playResponseOnLaptop, phraseMood, playResponseOnLaptop && isVocalReply);
 
-                        const activeFormantVowel = (isVocalReply && currentVowel === 'off') ? 'oo' : currentVowel;
-                        const activeFormantDepth = isVocalReply ? 0.88 : formantDepth;
-                        const registerOctaveShift = isVocalReply ? detectedVocalOctaveShift : 0;
+                        const activeFormantVowel = (playResponseOnLaptop && isVocalReply && currentVowel === 'off') ? 'oo' : currentVowel;
+                        const activeFormantDepth = (playResponseOnLaptop && isVocalReply) ? 0.88 : formantDepth;
+                        const registerOctaveShift = (playResponseOnLaptop && isVocalReply) ? detectedVocalOctaveShift : 0;
 
-                        const targetWeights = isVocalReply
+                        const targetWeights = (playResponseOnLaptop && isVocalReply)
                             ? [1.0, 0.82, 0.56, 0.38, 0.24, 0.14, 0.08, 0.04, 0.02, 0, 0, 0, 0, 0, 0, 0]
                             : markovStates[currentStateIndex].weights;
                         const activeVoicesSum = voiceGains.reduce((acc, g) => acc + g, 0);
@@ -1900,20 +1894,20 @@
 
                         const rawSine = Math.sin(vibratoPhase * Math.PI * 2);
                         const vocalWave = rawSine + 0.15 * Math.sin(vibratoPhase * Math.PI * 4);
-                        const currentDetuneCents = vibParams.depthCents * vocalWave;
-                        const vocalAmpShimmer = 1.0 + vibParams.ampTremolo * rawSine;
+                        const currentDetuneCents = (playResponseOnLaptop ? vibParams.depthCents : 0) * vocalWave;
+                        const vocalAmpShimmer = 1.0 + (playResponseOnLaptop ? vibParams.ampTremolo : 0) * rawSine;
 
                         if (gLiveOsc && gLiveGain) {
                             const leadSemi = (semitones[0] || 0) + registerOctaveShift;
                             const leadFreq = rootFrequency * Math.pow(2, leadSemi / 12);
                             gLiveOsc.frequency.setTargetAtTime(leadFreq, audioCtx.currentTime, pitchPortamentoSec);
-                            gLiveOsc.detune.setTargetAtTime(vibParams.active ? currentDetuneCents : 0, audioCtx.currentTime, 0.02);
+                            gLiveOsc.detune.setTargetAtTime((playResponseOnLaptop && vibParams.active) ? currentDetuneCents : 0, audioCtx.currentTime, 0.02);
                             const leadTargetGain = Math.min(0.45, (0.16 + activeY * 0.22) * conversationalGainScale);
                             gLiveGain.gain.setTargetAtTime(leadTargetGain, audioCtx.currentTime, 0.025);
                         }
 
                         if (breathGainNode && breathFilterNode) {
-                            const energyBreathMultiplier = isResponding ? (0.5 + companionEnergy * 0.8) : 1.0;
+                            const energyBreathMultiplier = playResponseOnLaptop ? (0.5 + companionEnergy * 0.8) : 1.0;
                             const activeBreathGain = breathAmount * 0.06 * (0.3 + activeY * 0.8) * energyBreathMultiplier;
                             breathGainNode.gain.setTargetAtTime(activeBreathGain, audioCtx.currentTime, 0.06);
 
@@ -1924,17 +1918,17 @@
                         voiceBanks.forEach((partials, vIdx) => {
                             const voiceSemitone = (semitones[vIdx] || 0) + registerOctaveShift;
                             const voiceBaseMultiplier = Math.pow(2, voiceSemitone / 12);
-                            const unfurlVoiceMult = unfurlParams.active ? unfurlParams.voiceEnvelopes[vIdx] : 1.0;
+                            const unfurlVoiceMult = (playResponseOnLaptop && unfurlParams.active) ? unfurlParams.voiceEnvelopes[vIdx] : 1.0;
                             const rawVoicePresence = voiceGains[vIdx] || 0;
-                            const voicePresence = (unfurlParams.active && rawVoicePresence === 0 && vIdx <= 2)
+                            const voicePresence = (playResponseOnLaptop && unfurlParams.active && rawVoicePresence === 0 && vIdx <= 2)
                                 ? (0.48 * unfurlVoiceMult)
                                 : (rawVoicePresence * unfurlVoiceMult);
-                            const voiceTimeConstant = unfurlParams.active ? 0.014 : baseTimeConstant;
+                            const voiceTimeConstant = (playResponseOnLaptop && unfurlParams.active) ? 0.014 : baseTimeConstant;
 
                             partials.forEach((item, hIdx) => {
                                 const baseWeight = targetWeights[hIdx] || 0;
 
-                                if (vibParams.active) {
+                                if (playResponseOnLaptop && vibParams.active) {
                                     item.osc.detune.setTargetAtTime(currentDetuneCents * (1 + vIdx * 0.05), audioCtx.currentTime, 0.02);
                                 } else if (breathAmount > 0.02) {
                                     const subtleBreathDetune = breathAmount * 1.4 * Math.sin(vibratoPhase * Math.PI * 2);
@@ -1954,12 +1948,12 @@
                                     altitudeMultiplier = Math.max(0, (activeY - 0.5) * 2.1);
                                 }
 
-                                if (isResponding && !isVocalReply && hIdx >= 6) {
+                                if (playResponseOnLaptop && !isVocalReply && hIdx >= 6) {
                                     altitudeMultiplier *= (0.8 + companionEnergy * 0.9);
                                 }
 
                                 let overtoneShuffleMult = 1.0;
-                                if (unfurlParams.active && hIdx > 0) {
+                                if (playResponseOnLaptop && unfurlParams.active && hIdx > 0) {
                                     const partialDelayMs = hIdx * 14;
                                     if (unfurlParams.elapsedInUnfurl < partialDelayMs) {
                                         overtoneShuffleMult = 0.15;
